@@ -4,10 +4,11 @@
 # Does NOT deploy — CI only (validation, type check, build)
 
 name: CI — Crown & Glow
-
+#activates workflow on push to main or develop, and on pull requests targeting main
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop] # push working files on develop before main
+    #only error free code goes to main, so we can be confident main is always deployable
   pull_request:
     branches: [main]
 
@@ -31,19 +32,19 @@ jobs:
     steps:
       # 1. Check out the code
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 #downloads the code from the repository so we can work with it in this job
 
       # 2. Set up Node.js 20
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4 # reusable unit of code that sets up Node.js environment
         with:
           node-version: 20
-          cache: npm
+          cache: npm #stores and restores npm dependencies to speed up installs in future runs
           cache-dependency-path: backend/package-lock.json
 
       # 3. Install dependencies (clean install — same as CI environment)
       - name: Install dependencies
-        run: npm ci
+        run: npm ci #installs dependencies based on package-lock.json, ensuring a consistent and clean install every time, which is crucial for CI to avoid "works on my machine" issues.
 
       # 4. Generate Prisma client
       # Required before TypeScript check — without this, Prisma types don't exist
@@ -56,20 +57,20 @@ jobs:
       # 5. TypeScript type check — catches ALL type errors across entire codebase
       # This is the most important step — finds errors before they reach production
       - name: TypeScript type check
-        run: npx tsc --noEmit
+        run: npx tsc --noEmit #runs the TypeScript compiler in "type check only" mode, which checks for type errors without generating any output files. This ensures that all TypeScript code adheres to the defined types and interfaces, catching potential bugs early in the development process.
 
       # 6. ESLint — checks code quality and style rules
-      - name: Lint
+      - name: Lint #checks the code for stylistic and programming errors based on the rules defined in the ESLint configuration. This helps maintain code quality and consistency across the project.
         run: npm run lint
 
       # 7. Build — compiles TypeScript to JavaScript in /dist
       # If this passes, the backend can actually start
-      - name: Build
-        run: npm run build
+      - name: Build #convering TypeScript code into JavaScript, which is necessary for running the backend in production. This step ensures that the code can be successfully compiled without errors, and that all necessary files are generated in the /dist directory as expected.
+        run: npm run build #coverts .ts into .js and outputs to dist folder, if this step fails, it means there are issues in the code that prevent it from being compiled successfully, such as syntax errors, missing imports, or other build-related problems. A successful build indicates that the code is syntactically correct and can be executed in a production environment.
 
       # 8. Verify build output exists
-      - name: Verify build output
-        run: |
+      - name: Verify build output  #checks if the expected output file dist/server.js exists after the build step. This is a crucial verification step to ensure that the build process produced the necessary output for the backend to run. If dist/server.js is missing, it indicates that the build failed to generate the required file, which would prevent the backend from starting properly in production.
+        run: | 
           if [ ! -f dist/server.js ]; then
             echo "❌ Build failed — dist/server.js not found"
             exit 1
