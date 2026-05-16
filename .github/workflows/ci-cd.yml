@@ -1,0 +1,181 @@
+# .github/workflows/ci.yml
+# Crown & Glow — Continuous Integration Pipeline
+# Runs on every push to main/develop and every pull request to main
+# Does NOT deploy — CI only (validation, type check, build)
+
+name: CI — Crown & Glow
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs if a new push is made (saves CI minutes)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BACKEND JOB
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  backend:
+    name: Backend — TypeScript & Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      # 1. Check out the code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Node.js 20
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # 3. Install dependencies (clean install — same as CI environment)
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Generate Prisma client
+      # Required before TypeScript check — without this, Prisma types don't exist
+      # Uses a dummy DATABASE_URL so prisma generate doesn't need a real DB
+      - name: Generate Prisma client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
+
+      # 5. TypeScript type check — catches ALL type errors across entire codebase
+      # This is the most important step — finds errors before they reach production
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      # 6. ESLint — checks code quality and style rules
+      - name: Lint
+        run: npm run lint
+
+      # 7. Build — compiles TypeScript to JavaScript in /dist
+      # If this passes, the backend can actually start
+      - name: Build
+        run: npm run build
+
+      # 8. Verify build output exists
+      - name: Verify build output
+        run: |
+          if [ ! -f dist/server.js ]; then
+            echo "❌ Build failed — dist/server.js not found"
+            exit 1
+          fi
+          echo "✅ Build output verified — dist/server.js exists"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # FRONTEND JOB
+  # ─────────────────────────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend — TypeScript & Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      # 1. Check out the code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Node.js 20
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. TypeScript type check
+      # Next.js build does this too but running it separately gives cleaner errors
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      # 5. ESLint
+      - name: Lint
+        run: npm run lint
+
+      # 6. Build Next.js app
+      # Needs a dummy API URL so fetch calls don't fail at build time
+      # This catches missing imports, broken pages, and invalid JSX
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:5000
+          # Tells Next.js to skip actual API calls during static generation
+          NEXT_TELEMETRY_DISABLED: 1
+
+      # 7. Confirm .next folder was created
+      - name: Verify build output
+        run: |
+          if [ ! -d .next ]; then
+            echo "❌ Build failed — .next directory not found"
+            exit 1
+          fi
+          echo "✅ Build output verified — .next directory exists"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SUMMARY JOB — runs after both jobs, reports final status
+  # ─────────────────────────────────────────────────────────────────────────────
+  summary:
+    name: CI Summary
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    # Always run this job so we always get a summary
+    if: always()
+
+    steps:
+      - name: Report results
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Crown & Glow — CI Pipeline Summary"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+
+          # Backend status
+          if [ "${{ needs.backend.result }}" == "success" ]; then
+            echo "  ✅ Backend   — TypeScript, Lint, Build PASSED"
+          else
+            echo "  ❌ Backend   — FAILED (check logs above)"
+          fi
+
+          # Frontend status
+          if [ "${{ needs.frontend.result }}" == "success" ]; then
+            echo "  ✅ Frontend  — TypeScript, Lint, Build PASSED"
+          else
+            echo "  ❌ Frontend  — FAILED (check logs above)"
+          fi
+
+          echo ""
+
+          # Overall result
+          if [ "${{ needs.backend.result }}" == "success" ] && [ "${{ needs.frontend.result }}" == "success" ]; then
+            echo "  🎉 All checks passed — safe to merge!"
+          else
+            echo "  🚨 Some checks failed — do NOT merge until fixed."
+            exit 1
+          fi
+
+          echo ""
+          echo "  Commit : ${{ github.sha }}"
+          echo "  Branch : ${{ github.ref_name }}"
+          echo "  By     : ${{ github.actor }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

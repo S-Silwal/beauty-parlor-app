@@ -1,0 +1,74 @@
+# Root .gitignore
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Backend specific
+backend/dist/
+backend/prisma/migrations/
+backend/prisma/*.db
+backend/uploads/
+backend/logs/
+
+# Frontend specific
+frontend/.next/
+frontend/out/
+frontend/public/uploads/
+frontend/.env.local
+frontend/.env.development.local
+
+# Optional
+docker-compose.override.yml
+*.sqlite
+*.db
+.nyc_output
+.tmp
