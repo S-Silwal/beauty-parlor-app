@@ -1,9 +1,10 @@
 // src/lib/socket.ts
-import { io, Socket } from 'socket.io-client';
+import { io } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 let socket: Socket;
 
-export const initSocket = () => {
+export const initSocket = (): Socket => {
   if (!socket) {
     socket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000', {
       withCredentials: true,
@@ -16,4 +17,4 @@ export const initSocket = () => {
   return socket;
 };
 
-export const getSocket = () => socket;
+export const getSocket = (): Socket | undefined => socket;
