@@ -11,7 +11,6 @@ import {
   rescheduleSchema,
   updateStatusSchema,
   getAvailableSlotsSchema,
-  cancelAppointmentSchema,
 } from "../validators/appointment.validator";
 
 export class AppointmentController {

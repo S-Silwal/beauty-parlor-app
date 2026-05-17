@@ -1,6 +1,6 @@
 import request from 'supertest';
 import app from '../server'; // adjust if needed
-import { describe, it, expect, beforeAll } from '@jest/globals';
+import { describe, it, expect } from '@jest/globals';
 describe('Auth API Tests', () => {
   it('should register a new user', async () => {
     const res = await request(app)

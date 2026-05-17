@@ -41,7 +41,7 @@ export async function sendEmail({
   event,
   data,
   userId,
-  appointmentId,
+ 
 }: SendEmailOptions) {
 
   // ✅ FIX 4: Don't select email_notifications — it doesn't exist in schema yet

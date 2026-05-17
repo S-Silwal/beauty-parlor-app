@@ -1,6 +1,5 @@
-// frontend/src/lib/socket.ts
-import { io } from 'socket.io-client';
-import type { Socket } from 'socket.io-client';
+// src/lib/socket.ts
+import { io, type Socket } from 'socket.io-client';
 
 let socket: Socket;
 
@@ -11,7 +10,7 @@ export const initSocket = (): Socket => {
     });
 
     socket.on('connect', () => {
-      console.log('🟢 Connected to Socket.io');
+      console.log('Connected to Socket.io');
     });
   }
   return socket;
