@@ -4,23 +4,24 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { Resend } from "resend";
-import { RegisterInput } from "../validators/auth.validator";
+import { RegisterInput } from "../validators";
+import { authConfig } from "../config/auth";
+import { emailConfig } from "../config/email";
 
-const JWT_SECRET     = process.env.JWT_SECRET!;
-const REFRESH_SECRET = process.env.REFRESH_SECRET || JWT_SECRET;
-const FRONTEND_URL   = process.env.FRONTEND_URL || "http://localhost:3000";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM   = process.env.RESEND_FROM_EMAIL || "Crown & Glow <hello@crownandglow.com>";
+const resend = new Resend(emailConfig.resendApiKey);
 
 // ── Email helper ─────────────────────────────────────────────────────────────
 async function sendAuthEmail(to: string, subject: string, html: string) {
   try {
-    await resend.emails.send({ from: FROM, to, subject, html });
+    await resend.emails.send({
+      from: emailConfig.fromEmail,
+      to,
+      subject,
+      html,
+    });
     console.log(`📧 Auth email sent to ${to}: ${subject}`);
   } catch (err: any) {
     console.error(`❌ Failed to send auth email to ${to}:`, err.message);
-    // Don't throw — email failure should not break auth flow
   }
 }
 
@@ -101,13 +102,11 @@ export class AuthService {
 
   // ====================== REGISTER ======================
   static async register(data: RegisterInput) {
-    // Check duplicate email
     const existingEmail = await prisma.user.findUnique({
       where: { email: data.email.toLowerCase() },
     });
     if (existingEmail) throw new Error("User with this email already exists");
 
-    // ✅ Check duplicate phone if provided
     if (data.phone) {
       const existingPhone = await prisma.user.findUnique({
         where: { phone: data.phone },
@@ -115,13 +114,15 @@ export class AuthService {
       if (existingPhone) throw new Error("This phone number is already registered to another account");
     }
 
-    const password_hash = await bcrypt.hash(data.password, 10);
+    // ✅ FIX 1 — was: bcrypt.hash(newPassword, ...) — newPassword doesn't exist here
+    // register() receives data.password, not newPassword
+    const password_hash = await bcrypt.hash(data.password, authConfig.bcryptRounds);
 
     const user = await prisma.user.create({
       data: {
         name:          data.name.trim(),
         email:         data.email.toLowerCase().trim(),
-        phone:         data.phone ?? null,   // ✅ save phone, null if not provided
+        phone:         data.phone ?? null,
         password_hash,
         role:          "CUSTOMER",
         is_verified:   false,
@@ -136,28 +137,24 @@ export class AuthService {
       },
     });
 
-    // ✅ Send verification email
     await AuthService.sendVerificationEmail(user.id, user.email, user.name);
-
     return { user };
   }
 
   // ====================== EMAIL VERIFICATION ======================
   static async sendVerificationEmail(userId: string, email: string, name: string) {
     const token     = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const expiresAt = new Date(Date.now() + authConfig.verificationTokenExpiryMs);
 
-    // Delete any existing verification tokens
     await prisma.passwordResetToken.deleteMany({ where: { user_id: userId } });
-
     await prisma.passwordResetToken.create({
       data: { user_id: userId, token, expires_at: expiresAt },
     });
 
-    const verifyUrl = `${FRONTEND_URL}/verify-email?token=${token}`;
+    const verifyUrl = `${authConfig.frontendUrl}/verify-email?token=${token}`;
     const html      = verificationEmailHtml(name, verifyUrl);
 
-    await sendAuthEmail(email, "✉️ Verify your Crown & Glow account", html);
+    await sendAuthEmail(email, emailConfig.subjects.verification, html);
 
     console.log(`📧 Verification email sent to ${email}`);
     console.log(`🔗 Verify URL (dev): ${verifyUrl}`);
@@ -165,14 +162,14 @@ export class AuthService {
 
   static async verifyEmail(token: string) {
     const record = await prisma.passwordResetToken.findUnique({
-      where: { token },
+      where:   { token },
       include: { user: true },
     });
 
-    if (!record)             throw new Error("Invalid verification link");
+    if (!record)                  throw new Error("Invalid verification link");
     if (record.expires_at < new Date()) throw new Error("Verification link has expired. Please request a new one.");
-    if (record.used)         throw new Error("This verification link has already been used.");
-    if (record.user.is_verified) throw new Error("Email is already verified.");
+    if (record.used)              throw new Error("This verification link has already been used.");
+    if (record.user.is_verified)  throw new Error("Email is already verified.");
 
     await prisma.user.update({
       where: { id: record.user_id },
@@ -190,8 +187,8 @@ export class AuthService {
 
   static async resendVerificationEmail(email: string) {
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user)              throw new Error("No account found with this email");
-    if (user.is_verified)   throw new Error("This email is already verified");
+    if (!user)            throw new Error("No account found with this email");
+    if (user.is_verified) throw new Error("This email is already verified");
 
     await AuthService.sendVerificationEmail(user.id, user.email, user.name);
     return { message: "Verification email sent" };
@@ -216,7 +213,6 @@ export class AuthService {
 
     if (!user) throw new Error("Invalid email or password");
 
-    // Account lock check
     if (user.accountLockedUntil && user.accountLockedUntil > new Date()) {
       throw new Error(`Account is locked until ${user.accountLockedUntil.toLocaleString()}`);
     }
@@ -229,10 +225,10 @@ export class AuthService {
         data:  { failedLoginAttempts: { increment: 1 } },
       });
 
-      if (updatedUser.failedLoginAttempts >= 5) {
+      if (updatedUser.failedLoginAttempts >= authConfig.maxFailedAttempts) {
         await prisma.user.update({
           where: { id: user.id },
-          data:  { accountLockedUntil: new Date(Date.now() + 30 * 60 * 1000) },
+          data:  { accountLockedUntil: new Date(Date.now() + authConfig.lockDurationMs) },
         });
         throw new Error("Too many failed attempts. Account locked for 30 minutes.");
       }
@@ -240,18 +236,15 @@ export class AuthService {
       throw new Error("Invalid email or password");
     }
 
-    // ✅ Block login if email not verified
     if (!user.is_verified) {
       throw new Error("Please verify your email before logging in. Check your inbox for the verification link.");
     }
 
-    // Reset failed login attempts
     await prisma.user.update({
       where: { id: user.id },
       data:  { failedLoginAttempts: 0, accountLockedUntil: null },
     });
 
-    // MFA Check
     if (user.mfa_enabled) {
       await this.generateOTP(user.id);
       return {
@@ -268,31 +261,26 @@ export class AuthService {
   private static async generateTokens(user: any) {
     const accessToken = jwt.sign(
       { userId: user.id, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "15m" }
+      authConfig.jwtSecret,
+      { expiresIn: authConfig.accessTokenExpiry }
     );
 
     const refreshToken = jwt.sign(
       { userId: user.id },
-      REFRESH_SECRET,
-      { expiresIn: "7d" }
+      authConfig.refreshSecret,
+      { expiresIn: authConfig.refreshTokenExpiry }
     );
 
     await prisma.refreshToken.create({
       data: {
         user_id:    user.id,
         token:      refreshToken,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        expires_at: new Date(Date.now() + authConfig.refreshTokenMs),
       },
     });
 
     return {
-      user: {
-        id:    user.id,
-        name:  user.name,
-        email: user.email,
-        role:  user.role,
-      },
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
       accessToken,
       refreshToken,
       mfaRequired: false,
@@ -301,7 +289,7 @@ export class AuthService {
 
   // ====================== REFRESH TOKEN ======================
   static async refreshAccessToken(oldRefreshToken: string) {
-    jwt.verify(oldRefreshToken, REFRESH_SECRET) as { userId: string };
+    jwt.verify(oldRefreshToken, authConfig.refreshSecret);
 
     const storedToken = await prisma.refreshToken.findUnique({
       where:   { token: oldRefreshToken },
@@ -316,21 +304,21 @@ export class AuthService {
 
     const newAccessToken = jwt.sign(
       { userId: storedToken.user.id, role: storedToken.user.role },
-      JWT_SECRET,
-      { expiresIn: "15m" }
+      authConfig.jwtSecret,
+      { expiresIn: authConfig.accessTokenExpiry }
     );
 
     const newRefreshToken = jwt.sign(
       { userId: storedToken.user.id },
-      REFRESH_SECRET,
-      { expiresIn: "7d" }
+      authConfig.refreshSecret,
+      { expiresIn: authConfig.refreshTokenExpiry }
     );
 
     await prisma.refreshToken.create({
       data: {
         user_id:    storedToken.user.id,
         token:      newRefreshToken,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        expires_at: new Date(Date.now() + authConfig.refreshTokenMs),
       },
     });
 
@@ -356,12 +344,11 @@ export class AuthService {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
 
     await prisma.otpCode.deleteMany({ where: { user_id: userId } });
-
     await prisma.otpCode.create({
       data: {
         user_id:    userId,
         code,
-        expires_at: new Date(Date.now() + 10 * 60 * 1000),
+        expires_at: new Date(Date.now() + authConfig.otpExpiryMs),
       },
     });
 
@@ -413,29 +400,28 @@ export class AuthService {
       where: { email: email.toLowerCase() },
     });
 
-    // Always return success to prevent email enumeration attacks
     if (!user) {
       console.log(`Password reset requested for non-existent email: ${email}`);
       return { message: "If an account exists, a reset link has been sent" };
     }
 
     const token     = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    // ✅ FIX 2 — was: Date.now() + 60 * 60 * 1000 (magic number left behind)
+    const expiresAt = new Date(Date.now() + authConfig.resetTokenExpiryMs);
 
-    // Delete any existing reset tokens
     await prisma.passwordResetToken.deleteMany({ where: { user_id: user.id } });
-
     await prisma.passwordResetToken.create({
       data: { user_id: user.id, token, expires_at: expiresAt },
     });
 
-    const resetUrl = `${FRONTEND_URL}/reset-password?token=${token}`;
+    // ✅ FIX 3 — was: FRONTEND_URL (old variable that no longer exists)
+    const resetUrl = `${authConfig.frontendUrl}/reset-password?token=${token}`;
     const html     = resetPasswordEmailHtml(user.name, resetUrl);
 
-    await sendAuthEmail(user.email, "🔐 Reset your Crown & Glow password", html);
+    // ✅ FIX 4 — was: hardcoded subject string
+    await sendAuthEmail(user.email, emailConfig.subjects.resetPassword, html);
 
     console.log(`🔗 Reset URL (dev): ${resetUrl}`);
-
     return { message: "If an account exists, a reset link has been sent" };
   }
 
@@ -445,11 +431,12 @@ export class AuthService {
       include: { user: true },
     });
 
-    if (!record)             throw new Error("Invalid or expired reset link");
+    if (!record)                  throw new Error("Invalid or expired reset link");
     if (record.expires_at < new Date()) throw new Error("Reset link has expired. Please request a new one.");
-    if (record.used)         throw new Error("This reset link has already been used.");
+    if (record.used)              throw new Error("This reset link has already been used.");
 
-    const password_hash = await bcrypt.hash(newPassword, 10);
+    // ✅ FIX 5 — was: bcrypt.hash(newPassword, 10) — magic number 10 left behind
+    const password_hash = await bcrypt.hash(newPassword, authConfig.bcryptRounds);
 
     await prisma.user.update({
       where: { id: record.user_id },
@@ -461,7 +448,6 @@ export class AuthService {
       data:  { used: true },
     });
 
-    // Invalidate all refresh tokens for security
     await prisma.refreshToken.deleteMany({ where: { user_id: record.user_id } });
 
     console.log(`✅ Password reset for user ${record.user.email}`);

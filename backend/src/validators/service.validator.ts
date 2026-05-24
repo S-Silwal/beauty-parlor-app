@@ -1,4 +1,4 @@
-// src/validators/service.validator.ts
+// src/validators/service.validator.ts//validation logic to create, update and query services. It ensures that incoming data for service-related operations adheres to the defined structure and rules, preventing invalid data from being processed by the application.
 import { z } from "zod";
 import { ServiceCategory } from "@prisma/client";
 

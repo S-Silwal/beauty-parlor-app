@@ -5,14 +5,14 @@ dotenv.config();
 
 export const serverConfig = {
   port: Number(process.env.PORT) || 5000,
-  nodeEnv: process.env.NODE_ENV || "development",
+  nodeEnv: process.env.NODE_ENV || "development",//tell entire app whether we're in development or production mode, which can be used to conditionally enable features like detailed logging or hot reloading
 
   // CORS Configuration
   corsOptions: {
     origin: process.env.FRONTEND_URL 
-      ? process.env.FRONTEND_URL.split(",").map((url) => url.trim())
+      ? process.env.FRONTEND_URL.split(",").map((url) => url.trim())//multiple frontend url allowed
       : ["http://localhost:3000", "http://localhost:3001"],
-    credentials: true,
+    credentials: true,//allow cookies to be sent in cross-origin requests
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   },

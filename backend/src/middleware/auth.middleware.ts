@@ -1,7 +1,7 @@
 // src/middleware/auth.middleware.ts
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-
+import { authConfig } from "../config/auth";
 /**
  * Extended Express Request Interface
  */
@@ -41,10 +41,10 @@ export const authenticate = (
       return;
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
-      userId: string;
-      role: string;
-    };
+  const decoded = jwt.verify(token, authConfig.jwtSecret) as {
+  userId: string;
+  role: string;
+};
 
     req.user = decoded;
     next();

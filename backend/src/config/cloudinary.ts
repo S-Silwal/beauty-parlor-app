@@ -1,5 +1,5 @@
 // src/config/cloudinary.ts
-import { v2 as cloudinary } from 'cloudinary';
+import { v2 as cloudinary } from 'cloudinary';//renamed as cloudinary instead of writing v2.uploader.upload(...)to avoid naming conflict with the package
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,

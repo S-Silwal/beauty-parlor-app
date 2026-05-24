@@ -9,10 +9,10 @@ import { z } from "zod";
 const usPhoneSchema = z
   .string()
   .optional()
-  .transform(val => {
-    if (!val || val.trim() === '') return undefined;
+  .transform(val => {//
+    if (!val || val.trim() === '') return undefined;//val
     // Strip everything except digits and leading +
-    return val.replace(/[^\d+]/g, '');
+    return val.replace(/[^\d+]/g, '');//returns only digits and leading +, removes spaces, dashes, parentheses, etc.
   })
   .refine(val => {
     if (!val) return true; // optional — skip if empty
@@ -31,7 +31,7 @@ const usPhoneSchema = z
 /**
  * Register Schema
  */
-export const registerSchema = z.object({
+export const registerSchema = z.object({//expported for validation rules
   name: z
     .string()
     .min(2, "Name must be at least 2 characters")
@@ -96,7 +96,7 @@ export const verifyOTPSchema = z.object({
 });
 
 // ====================== TYPES ======================
-export type RegisterInput = z.infer<typeof registerSchema>;
+export type RegisterInput = z.infer<typeof registerSchema>;//exports a TypeScript type based on the Zod schema, which can be used for type checking in the rest of the codebase. It ensures that any data passed as RegisterInput adheres to the structure and validation rules defined in registerSchema.
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
