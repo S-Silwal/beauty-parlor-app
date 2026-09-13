@@ -4,7 +4,7 @@
 // surface later as a confusing runtime error deep inside some unrelated
 // request (e.g. jwt.sign() throwing on an undefined secret).
 
-const REQUIRED = ["DATABASE_URL", "JWT_SECRET"];
+const REQUIRED = ["DATABASE_URL", "JWT_SECRET", "REFRESH_SECRET"];
 
 // Missing any of these just disables that one feature (email, SMS, uploads,
 // scheduled reminders) rather than breaking the whole app, so we only warn.

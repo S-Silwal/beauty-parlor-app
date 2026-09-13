@@ -31,11 +31,19 @@ export class GalleryService {
   // Frontend uploads directly to Cloudinary using this signature
   // This is the industry-standard approach — image never hits your server
   static async generateSignedUploadUrl() {
+    const apiSecret  = process.env.CLOUDINARY_API_SECRET;
+    const apiKey     = process.env.CLOUDINARY_API_KEY;
+    const cloudName  = process.env.CLOUDINARY_CLOUD_NAME;
+
+    if (!apiSecret || !apiKey || !cloudName) {
+      throw new AppError(
+        "Image uploads are not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.",
+        503
+      );
+    }
+
     const timestamp  = Math.round(Date.now() / 1000);
     const folder     = "beauty-parlor/gallery";
-    const apiSecret  = process.env.CLOUDINARY_API_SECRET!;
-    const apiKey     = process.env.CLOUDINARY_API_KEY!;
-    const cloudName  = process.env.CLOUDINARY_CLOUD_NAME!;
 
     // Create signature string
     const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;

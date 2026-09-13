@@ -50,11 +50,19 @@ export class ServiceService {
   // dedicated folder so service photos and gallery photos don't mix.
   // The frontend uploads directly to Cloudinary with this signature.
   static async generateSignedUploadUrl() {
+    const apiSecret  = process.env.CLOUDINARY_API_SECRET;
+    const apiKey     = process.env.CLOUDINARY_API_KEY;
+    const cloudName  = process.env.CLOUDINARY_CLOUD_NAME;
+
+    if (!apiSecret || !apiKey || !cloudName) {
+      throw new AppError(
+        "Image uploads are not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.",
+        503
+      );
+    }
+
     const timestamp  = Math.round(Date.now() / 1000);
     const folder     = "beauty-parlor/services";
-    const apiSecret  = process.env.CLOUDINARY_API_SECRET!;
-    const apiKey     = process.env.CLOUDINARY_API_KEY!;
-    const cloudName  = process.env.CLOUDINARY_CLOUD_NAME!;
 
     const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
     const signature    = crypto
