@@ -8,8 +8,9 @@ const config: Config = {
   // Test environment (Node.js since it's a backend)
   testEnvironment: 'node',
 
-  // Where to look for tests
-  roots: ['<rootDir>/src', '<rootDir>/tests'],
+  // Where to look for tests — all tests live under src/tests, there is no
+  // separate top-level tests/ directory.
+  roots: ['<rootDir>/src'],
 
   // Test file patterns
   testMatch: [
@@ -37,7 +38,7 @@ const config: Config = {
   ],
 
   // Setup file that runs before all tests
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/src/tests/setup.ts'],
 
   // Clear mocks and modules between tests
   clearMocks: true,

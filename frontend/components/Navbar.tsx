@@ -3,11 +3,13 @@
 
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 
 export default function Navbar() {
   const { user, logout, isAdmin } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const isLoginPage = pathname === '/login'; // marks Login as the current page below
 
   const handleLogout = async () => {
     await logout();
@@ -42,28 +44,41 @@ export default function Navbar() {
         }
 
         .nb-logo {
+          /* Plain brand mark, not a link — "Home" already covers that in
+             .nb-links, so the logo no longer shows a pointer/hand cursor
+             hinting at a separate destination it doesn't actually go to. */
           font-family: 'Cormorant Garamond', serif;
           font-size: 26px; font-weight: 500;
           color: var(--charcoal); letter-spacing: .01em;
-          text-decoration: none; flex-shrink: 0;
-          transition: color .2s;
+          flex-shrink: 0; cursor: default; user-select: none;
         }
         .nb-logo em { font-style: italic; color: var(--gold); }
-        .nb-logo:hover { color: var(--gold); }
 
         .nb-links {
+          /* gap (8px) + link padding (8px each side) ≈ 32px of breathing
+             room between adjacent link labels, per design spec */
           display: flex; align-items: center;
-          gap: 2px; list-style: none; margin: 0; padding: 0;
+          gap: 8px; list-style: none; margin: 0; padding: 0;
         }
         .nb-link {
+          position: relative;
           font-size: 13px; font-weight: 500;
           letter-spacing: .06em; text-transform: uppercase;
           color: var(--mid); text-decoration: none;
-          padding: 8px 14px; border-radius: 2px;
-          transition: color .2s, background .2s;
+          padding: 8px 14px;
+          transition: color .2s;
           white-space: nowrap;
         }
-        .nb-link:hover { color: var(--charcoal); background: var(--cream-bd); }
+        /* Gold underline on hover/focus instead of a background color jump */
+        .nb-link::after {
+          content: ''; position: absolute; left: 14px; right: 14px; bottom: 4px;
+          height: 1px; background: var(--gold);
+          transform: scaleX(0); transform-origin: left;
+          transition: transform .25s ease;
+        }
+        .nb-link:hover, .nb-link:focus-visible { color: var(--charcoal); }
+        .nb-link:hover::after, .nb-link:focus-visible::after { transform: scaleX(1); }
+        .nb-link:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
         .nb-auth { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
@@ -91,6 +106,11 @@ export default function Navbar() {
         .nb-btn-ghost:hover {
           color: var(--charcoal); border-color: var(--gold);
           background: rgba(184,154,106,0.06);
+        }
+        /* Marks Login as the current page when already on /login */
+        .nb-btn-ghost.nb-current {
+          color: var(--charcoal); border-color: var(--gold);
+          background: rgba(184,154,106,0.08);
         }
 
         .nb-btn-solid {
@@ -136,10 +156,10 @@ export default function Navbar() {
       <nav className="nb">
         <div className="nb-inner">
 
-          {/* Logo */}
-          <Link href="/" className="nb-logo">
+          {/* Logo — brand mark only, not a link (see .nb-logo above) */}
+          <span className="nb-logo">
             Crown <em>&amp; Glow</em>
-          </Link>
+          </span>
 
           {/* Nav links */}
           <ul className="nb-links">
@@ -187,7 +207,13 @@ export default function Navbar() {
               </>
             ) : (
               <>
-                <Link href="/login"    className="nb-btn-ghost">Login</Link>
+                <Link
+                  href="/login"
+                  className={`nb-btn-ghost${isLoginPage ? ' nb-current' : ''}`}
+                  aria-current={isLoginPage ? 'page' : undefined}
+                >
+                  Login
+                </Link>
                 <Link href="/register" className="nb-btn-solid">Register</Link>
               </>
             )}

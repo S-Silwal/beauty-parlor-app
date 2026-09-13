@@ -11,15 +11,15 @@ export default function VerifyEmailPage() {
   const searchParams = useSearchParams();
   const router       = useRouter();
   const token        = searchParams.get('token');
-  const [status, setStatus]   = useState<Status>('loading');
-  const [message, setMessage] = useState('');
+  // token is static for the page's lifetime (from the URL), so the
+  // no-token case can be the initial state instead of set via an effect.
+  const [status, setStatus]   = useState<Status>(() => (token ? 'loading' : 'error'));
+  const [message, setMessage] = useState(() => (
+    token ? '' : 'No verification token found. Please check your email link.'
+  ));
 
   useEffect(() => {
-    if (!token) {
-      setStatus('error');
-      setMessage('No verification token found. Please check your email link.');
-      return;
-    }
+    if (!token) return;
 
     (async () => {
       try {
@@ -43,7 +43,7 @@ export default function VerifyEmailPage() {
         setMessage('Something went wrong. Please try again.');
       }
     })();
-  }, [token]);
+  }, [token, router]);
 
   return (
     <>

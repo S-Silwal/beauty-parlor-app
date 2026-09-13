@@ -10,6 +10,8 @@ const router = Router();
 router.get("/", ServiceController.getAllServices);
 
 // ====================== ADMIN ONLY ROUTES ======================
+// Must come before any "/:id" routes so "signed-url" isn't parsed as an id.
+router.get("/signed-url", authenticate, isAdmin, ServiceController.getSignedUrl);
 router.post("/", authenticate, isAdmin, ServiceController.createService);
 router.patch("/:id", authenticate, isAdmin, ServiceController.updateService);
 router.delete("/:id", authenticate, isAdmin, ServiceController.deleteService);

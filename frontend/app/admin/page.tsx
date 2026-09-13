@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -39,6 +40,19 @@ interface GalleryImage {
   created_at: string;
 }
 
+type ServiceCategory = 'EYEBROW_LASH' | 'WAXING' | 'FACIAL_SKINCARE';
+
+interface Service {
+  id: string;
+  name: string;
+  category: ServiceCategory;
+  description?: string;
+  duration: number;
+  price: number | string; // Prisma Decimal comes back as a string over JSON
+  image?: string | null;
+  isActive: boolean;
+}
+
 function getGreeting(): string {
   const hour = new Date().getHours();
   if (hour >= 5  && hour < 12) return 'Good Morning';
@@ -62,17 +76,43 @@ const GALLERY_CATEGORIES = [
   { value: 'before_after', label: 'Before & After' },
 ];
 
-type AdminTab = 'overview' | 'bookings' | 'staff' | 'gallery';
+// Mirrors the backend's ServiceCategory enum (prisma/schema.prisma)
+const SERVICE_CATEGORIES: { value: ServiceCategory; label: string }[] = [
+  { value: 'EYEBROW_LASH',    label: 'Brows & Lashes' },
+  { value: 'WAXING',          label: 'Waxing' },
+  { value: 'FACIAL_SKINCARE', label: 'Facials & Skincare' },
+];
+
+type AdminTab = 'overview' | 'bookings' | 'requests' | 'staff' | 'gallery' | 'services';
+
+interface ChangeRequest {
+  id: string;
+  type: 'EDIT' | 'CANCEL';
+  status: 'PENDING' | 'APPROVED' | 'DECLINED';
+  requested_date?: string | null;
+  customer_note?: string | null;
+  created_at: string;
+  appointment: {
+    id: string;
+    appointment_date: string;
+    service: { name: string };
+    staff?: { name: string } | null;
+    user: { name: string; email: string };
+  };
+  requestedStaff?: { name: string } | null;
+  requestedService?: { name: string } | null;
+}
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 export default function AdminPanel() {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [bookings, setBookings]   = useState<Booking[]>([]);
   const [staff, setStaff]         = useState<Staff[]>([]);
   const [gallery, setGallery]     = useState<GalleryImage[]>([]);
+  const [services, setServices]   = useState<Service[]>([]);
   const [loading, setLoading]     = useState(true);
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [filter, setFilter]       = useState<AppointmentStatus | 'ALL'>('ALL');
@@ -81,8 +121,15 @@ export default function AdminPanel() {
   const [newBookingIds, setNewBookingIds] = useState<Set<string>>(new Set());
   const [greeting] = useState(getGreeting());
 
+  const [changeRequests, setChangeRequests] = useState<ChangeRequest[]>([]);
+  const [resolvingId, setResolvingId]       = useState<string | null>(null);
+  const [declineDraftId, setDeclineDraftId] = useState<string | null>(null);
+  const [declineReason, setDeclineReason]   = useState('');
+  const [newRequestIds, setNewRequestIds]   = useState<Set<string>>(new Set());
+
   const [showStaffForm, setShowStaffForm] = useState(false);
-  const [staffForm, setStaffForm]         = useState({ name: '', specialization: '', email: '', phone: '' });
+  const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
+  const [staffForm, setStaffForm]         = useState({ name: '', specialization: '', email: '', phone: '', isActive: true });
   const [staffLoading, setStaffLoading]   = useState(false);
 
   const [galleryUploading, setGalleryUploading] = useState(false);
@@ -93,10 +140,26 @@ export default function AdminPanel() {
   const [galleryFilter, setGalleryFilter]       = useState('all');
   const fileInputRef                            = useRef<HTMLInputElement>(null);
 
+  const [showServiceForm, setShowServiceForm]   = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [serviceForm, setServiceForm]           = useState({
+    name: '', category: 'EYEBROW_LASH' as ServiceCategory, description: '', duration: '', price: '', image: '',
+  });
+  const [serviceLoading, setServiceLoading]         = useState(false);
+  const [selectedServiceFile, setSelectedServiceFile] = useState<File | null>(null);
+  const [servicePreviewUrl, setServicePreviewUrl]     = useState<string | null>(null);
+  const [serviceUploading, setServiceUploading]       = useState(false);
+  const [serviceUploadProgress, setServiceUploadProgress] = useState(0);
+  const serviceFileInputRef                           = useRef<HTMLInputElement>(null);
+
+  // Wait for AuthContext's async auth check before deciding to redirect —
+  // otherwise a genuinely logged-in admin gets bounced to /login on refresh
+  // because `user` starts as null.
   useEffect(() => {
+    if (authLoading) return;
     if (!user) { router.push('/login'); return; }
     if (!isAdmin) { router.push('/dashboard'); }
-  }, [user, isAdmin, router]);
+  }, [user, isAdmin, authLoading, router]);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -137,15 +200,51 @@ export default function AdminPanel() {
     } catch (err) { console.error('Failed to fetch gallery', err); }
   };
 
+  const fetchServices = async () => {
+    try {
+      const res  = await fetch(`${API}/api/services`);
+      const data = await res.json();
+      if (data.success) setServices(data.services || []);
+    } catch (err) { console.error('Failed to fetch services', err); }
+  };
+
+  const fetchChangeRequests = async (highlightId?: string) => {
+    try {
+      const token = api.getToken();
+      if (!token) return;
+      const data = await api.getPendingChangeRequests(token);
+      if (data.success) {
+        setChangeRequests(data.requests || []);
+        if (highlightId) {
+          setNewRequestIds(prev => new Set(prev).add(highlightId));
+          setTimeout(() => setNewRequestIds(prev => { const n = new Set(prev); n.delete(highlightId); return n; }), 6000);
+        }
+      }
+    } catch (err) { console.error('Failed to fetch change requests', err); }
+  };
+
   useEffect(() => {
     if (!user || !isAdmin) return;
-    fetchBookings();
-    fetchStaff();
-    fetchGallery();
+
+    (async () => {
+      await Promise.all([fetchBookings(), fetchStaff(), fetchGallery(), fetchServices(), fetchChangeRequests()]);
+    })();
+
     const socket = initSocket();
     socket.on('bookingCreated', (b: Booking) => fetchBookings(b?.id));
     socket.on('bookingUpdated', () => fetchBookings());
-    return () => { socket.off('bookingCreated'); socket.off('bookingUpdated'); };
+    // A customer submitted a new edit/cancel request — show it live without
+    // waiting for a manual refresh.
+    socket.on('changeRequestCreated', (r: ChangeRequest) => fetchChangeRequests(r?.id));
+    // A request was just resolved (by this admin or another) — drop it from
+    // the pending list and refresh the underlying booking it touched.
+    socket.on('changeRequestResolved', () => { fetchChangeRequests(); fetchBookings(); });
+    return () => {
+      socket.off('bookingCreated');
+      socket.off('bookingUpdated');
+      socket.off('changeRequestCreated');
+      socket.off('changeRequestResolved');
+    };
   }, [user, isAdmin]);
 
   const updateStatus = async (id: string, status: AppointmentStatus) => {
@@ -160,33 +259,85 @@ export default function AdminPanel() {
       });
       const data = await res.json();
       if (data.success) {
-        setBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b));
+        // Merge the server's copy (not just `status`) so a COMPLETED
+        // transition — which also flips payment_status to PAID server-side —
+        // is reflected immediately in the Revenue stat without waiting on
+        // the next socket-triggered refetch.
+        setBookings(prev => prev.map(b => b.id === id ? { ...b, ...data.appointment } : b));
         showToast(`Booking ${status.toLowerCase()} successfully`);
       } else showToast(data.message || 'Update failed', 'error');
     } catch { showToast('Failed to update booking', 'error'); }
     finally { setUpdatingId(null); }
   };
 
-  const handleAddStaff = async (e: React.FormEvent) => {
+  const resolveRequest = async (requestId: string, decision: 'APPROVED' | 'DECLINED', reason?: string) => {
+    setResolvingId(requestId);
+    try {
+      const token = api.getToken();
+      if (!token) return;
+      const data = await api.resolveChangeRequest(requestId, decision, reason, token);
+      if (data.success) {
+        setChangeRequests(prev => prev.filter(r => r.id !== requestId));
+        setDeclineDraftId(null);
+        setDeclineReason('');
+        fetchBookings();
+        showToast(decision === 'APPROVED' ? 'Request approved' : 'Request declined');
+      } else {
+        showToast(data.message || 'Failed to resolve request', 'error');
+      }
+    } catch {
+      showToast('Failed to resolve request', 'error');
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  const emptyStaffForm = { name: '', specialization: '', email: '', phone: '', isActive: true };
+
+  const openAddStaff = () => {
+    setEditingStaffId(null);
+    setStaffForm(emptyStaffForm);
+    setShowStaffForm(true);
+  };
+
+  const openEditStaff = (s: Staff) => {
+    setEditingStaffId(s.id);
+    setStaffForm({
+      name: s.name,
+      specialization: s.specialization || '',
+      email: s.email || '',
+      phone: s.phone || '',
+      isActive: s.isActive,
+    });
+    setShowStaffForm(true);
+  };
+
+  const closeStaffForm = () => {
+    setShowStaffForm(false);
+    setEditingStaffId(null);
+    setStaffForm(emptyStaffForm);
+  };
+
+  const handleSaveStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!staffForm.name.trim()) return;
     setStaffLoading(true);
     try {
-      const token = api.getToken();
-      const res   = await fetch(`${API}/api/staff`, {
-        method: 'POST',
+      const token   = api.getToken();
+      const isEdit  = !!editingStaffId;
+      const res     = await fetch(`${API}/api/staff${isEdit ? `/${editingStaffId}` : ''}`, {
+        method: isEdit ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         credentials: 'include',
         body: JSON.stringify(staffForm),
       });
       const data = await res.json();
       if (data.success) {
-        showToast('Staff member added successfully');
-        setShowStaffForm(false);
-        setStaffForm({ name: '', specialization: '', email: '', phone: '' });
+        showToast(isEdit ? 'Staff member updated successfully' : 'Staff member added successfully');
+        closeStaffForm();
         fetchStaff();
-      } else showToast(data.message || 'Failed to add staff', 'error');
-    } catch { showToast('Failed to add staff', 'error'); }
+      } else showToast(data.message || `Failed to ${isEdit ? 'update' : 'add'} staff`, 'error');
+    } catch { showToast(`Failed to ${editingStaffId ? 'update' : 'add'} staff`, 'error'); }
     finally { setStaffLoading(false); }
   };
 
@@ -201,6 +352,118 @@ export default function AdminPanel() {
       if (data.success) { showToast('Staff removed'); fetchStaff(); }
       else showToast(data.message || 'Failed to remove staff', 'error');
     } catch { showToast('Failed to remove staff', 'error'); }
+  };
+
+  const emptyServiceForm = { name: '', category: 'EYEBROW_LASH' as ServiceCategory, description: '', duration: '', price: '', image: '' };
+
+  const openAddService = () => {
+    setEditingServiceId(null);
+    setServiceForm(emptyServiceForm);
+    setSelectedServiceFile(null);
+    setServicePreviewUrl(null);
+    setShowServiceForm(true);
+  };
+
+  const openEditService = (sv: Service) => {
+    setEditingServiceId(sv.id);
+    setServiceForm({
+      name: sv.name,
+      category: sv.category,
+      description: sv.description || '',
+      duration: String(sv.duration),
+      price: String(sv.price),
+      image: sv.image || '',
+    });
+    setSelectedServiceFile(null);
+    setServicePreviewUrl(null);
+    setShowServiceForm(true);
+  };
+
+  const closeServiceForm = () => {
+    setShowServiceForm(false);
+    setEditingServiceId(null);
+    setServiceForm(emptyServiceForm);
+    setSelectedServiceFile(null);
+    setServicePreviewUrl(null);
+    if (serviceFileInputRef.current) serviceFileInputRef.current.value = '';
+  };
+
+  const handleServiceFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { showToast('Only JPG, PNG and WebP images are allowed', 'error'); return; }
+    if (file.size > 10 * 1024 * 1024) { showToast('Image must be under 10MB', 'error'); return; }
+    setSelectedServiceFile(file);
+    setServicePreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleSaveService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!serviceForm.name.trim() || !serviceForm.duration || !serviceForm.price) return;
+    const isEdit = !!editingServiceId;
+    setServiceLoading(true);
+    try {
+      const token = api.getToken();
+      let imageUrl = serviceForm.image; // existing photo when editing, '' otherwise
+
+      // Only touch Cloudinary if the admin picked a new photo
+      if (selectedServiceFile) {
+        setServiceUploading(true); setServiceUploadProgress(20);
+        const sigRes  = await fetch(`${API}/api/services/signed-url`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+        const sigData = await sigRes.json();
+        if (!sigData.success) throw new Error('Failed to get upload signature');
+        const { signature, timestamp, apiKey, folder, uploadUrl } = sigData;
+        setServiceUploadProgress(45);
+        const formData = new FormData();
+        formData.append('file', selectedServiceFile);
+        formData.append('signature', signature);
+        formData.append('timestamp', String(timestamp));
+        formData.append('api_key', apiKey);
+        formData.append('folder', folder);
+        const uploadRes  = await fetch(uploadUrl, { method: 'POST', body: formData });
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) throw new Error(uploadData.error?.message || 'Cloudinary upload failed');
+        imageUrl = uploadData.secure_url;
+        setServiceUploadProgress(85);
+      }
+
+      const res = await fetch(`${API}/api/services${isEdit ? `/${editingServiceId}` : ''}`, {
+        method: isEdit ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({
+          name:        serviceForm.name,
+          category:    serviceForm.category,
+          description: serviceForm.description || undefined,
+          duration:    Number(serviceForm.duration),
+          price:       Number(serviceForm.price),
+          ...(imageUrl ? { image: imageUrl } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isEdit ? 'Service updated successfully' : 'Service added successfully');
+        closeServiceForm();
+        fetchServices();
+      } else showToast(data.message || `Failed to ${isEdit ? 'update' : 'add'} service`, 'error');
+    } catch (err: any) {
+      showToast(err.message || `Failed to ${isEdit ? 'update' : 'add'} service`, 'error');
+    } finally {
+      setServiceLoading(false); setServiceUploading(false); setServiceUploadProgress(0);
+    }
+  };
+
+  const handleRemoveService = async (id: string, name: string) => {
+    if (!confirm(`Remove "${name}" from services?`)) return;
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/services/${id}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
+      });
+      const data = await res.json();
+      if (data.success) { showToast('Service removed'); fetchServices(); }
+      else showToast(data.message || 'Failed to remove service', 'error');
+    } catch { showToast('Failed to remove service', 'error'); }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -277,36 +540,44 @@ export default function AdminPanel() {
   const filtered        = filter === 'ALL' ? bookings : bookings.filter(b => b.status === filter);
   const filteredGallery = galleryFilter === 'all' ? gallery : gallery.filter(g => g.category === galleryFilter);
 
-  if (!user || !isAdmin) return null;
+  if (authLoading || !user || !isAdmin) return null;
 
   return (
     <div style={{ minHeight:'100vh', background:'#F5F0EB', fontFamily:"'Jost', sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Jost:wght@300;400;500;600;700&display=swap');
-        .ap-header{background:#2C2825;padding:0 32px;}
-        .ap-header-inner{max-width:1280px;margin:0 auto;height:68px;display:flex;align-items:center;justify-content:space-between;}
-        .ap-logo{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:500;color:#F7F3EE;}
+        .ap-header{background:#2B221C;padding:0 32px;border-bottom:1px solid rgba(212,184,150,.16);}
+        .ap-header-inner{max-width:1280px;margin:0 auto;height:80px;display:flex;align-items:center;justify-content:space-between;}
+        .ap-logo{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:500;color:#F7F3EE;letter-spacing:.01em;}
         .ap-logo em{font-style:italic;color:#D4B896;}
-        .ap-user-name{font-size:13px;color:#D4B896;font-weight:500;}
-        .ap-user-role{font-size:10px;color:#6B635A;letter-spacing:.1em;text-transform:uppercase;}
-        .ap-logout{background:none;border:1px solid rgba(212,184,150,.3);color:#9E968E;padding:6px 14px;border-radius:2px;font-size:11px;cursor:pointer;font-family:'Jost',sans-serif;letter-spacing:.08em;text-transform:uppercase;transition:all .2s;margin-left:16px;}
-        .ap-logout:hover{border-color:#B89A6A;color:#D4B896;}
+        .ap-user-block{display:flex;align-items:center;gap:28px;}
+        .ap-user-id{display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
+        .ap-user-name{font-size:15px;line-height:1;color:#EFE3D0;font-weight:600;letter-spacing:.01em;}
+        .ap-user-role{font-size:10px;line-height:1;color:#B89A6A;letter-spacing:.16em;text-transform:uppercase;font-weight:600;}
+        .ap-user-sep{width:1px;height:32px;background:rgba(212,184,150,.22);flex-shrink:0;}
         .ap-tabs{background:#fff;border-bottom:1px solid #EDE6DC;}
-        .ap-tabs-inner{max-width:1280px;margin:0 auto;padding:0 32px;display:flex;gap:0;overflow-x:auto;}
-        .ap-tab{padding:18px 24px 14px;border:none;background:none;cursor:pointer;font-family:'Jost',sans-serif;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#9E968E;border-bottom:2px solid transparent;transition:all .2s;white-space:nowrap;}
-        .ap-tab:hover{color:#2C2825;background:#F7F3EE;}
-        .ap-tab.on{color:#2C2825;border-bottom-color:#B89A6A;}
+        .ap-tabs-inner{max-width:1280px;margin:0 auto;padding:0 32px;display:flex;gap:4px;overflow-x:auto;}
+        .ap-tab{display:flex;align-items:center;gap:8px;padding:19px 22px 15px;border:none;background:none;cursor:pointer;font-family:'Jost',sans-serif;font-size:13px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#7A7268;border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap;}
+        .ap-tab:hover{color:#2C2825;background:#FAF6F1;}
+        .ap-tab.on{color:#2C2825;font-weight:700;border-bottom-color:#B89A6A;}
+        .ap-tab-badge{font-size:11px;font-weight:600;letter-spacing:0;padding:1px 7px;border-radius:20px;background:#F0E9DD;color:#9E8B67;}
+        .ap-tab.on .ap-tab-badge{background:#B89A6A;color:#FDFAF6;}
         .ap-body{max-width:1280px;margin:0 auto;padding:40px 32px 80px;}
         .ap-greeting{margin-bottom:36px;}
-        .ap-greeting h1{font-family:'Cormorant Garamond',serif;font-size:clamp(28px,4vw,44px);font-weight:300;color:#2C2825;margin:0 0 6px;}
+        .ap-greeting h1{font-family:'Cormorant Garamond',serif;font-size:clamp(28px,4vw,44px);font-weight:300;color:#2C2825;margin:0 0 8px;}
         .ap-greeting h1 em{font-style:italic;color:#B89A6A;}
-        .ap-greeting p{font-size:14px;font-weight:300;color:#9E968E;}
+        .ap-greeting p{font-size:17px;font-weight:400;color:#8A7B6E;line-height:1.5;}
         .ap-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:20px;margin-bottom:36px;}
-        .ap-stat{background:#fff;border:1px solid #EDE6DC;border-radius:6px;padding:22px 24px;}
-        .ap-stat-label{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#9E968E;margin-bottom:10px;}
-        .ap-stat-value{font-family:'Cormorant Garamond',serif;font-size:38px;font-weight:400;color:#2C2825;line-height:1;}
-        .ap-stat-sub{font-size:11px;color:#B89A6A;margin-top:6px;}
-        .ap-rev-note{font-size:11px;color:#9E968E;margin-top:4px;font-style:italic;}
+        .ap-stat{background:#fff;border:1px solid #EDE6DC;border-radius:6px;padding:28px 26px;}
+        .ap-stat-label{font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#6B5D50;margin-bottom:14px;}
+        .ap-stat-value{font-family:'Jost',sans-serif;font-size:40px;font-weight:600;color:#2C2825;line-height:1;letter-spacing:-.01em;font-variant-numeric:tabular-nums;}
+        .ap-stat-sub{font-size:13px;font-weight:400;color:#9C8768;margin-top:8px;line-height:1.4;}
+        .ap-stat-link{display:block;text-decoration:none;transition:box-shadow .2s,transform .2s;}
+        .ap-stat-link:hover{box-shadow:0 6px 18px rgba(44,40,37,0.10);transform:translateY(-2px);}
+        .ap-stat-cta{font-size:12px;font-weight:600;color:#B89A6A;margin-top:12px;}
+        .ap-rev-note{font-size:12px;font-weight:400;color:#9E968E;margin-top:6px;line-height:1.45;letter-spacing:.01em;}
+        .ap-viewall{padding:10px 20px;border-radius:999px;background:#2C2825;border:1px solid #2C2825;font-family:'Jost',sans-serif;font-size:13px;font-weight:600;letter-spacing:.06em;color:#F7F3EE;cursor:pointer;transition:all .2s;}
+        .ap-viewall:hover{background:#B89A6A;border-color:#B89A6A;}
         .ap-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;}
         .ap-filter{padding:8px 16px;border-radius:999px;border:1.5px solid #EDE6DC;background:#fff;font-family:'Jost',sans-serif;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#9E968E;cursor:pointer;transition:all .2s;}
         .ap-filter:hover{border-color:#B89A6A;color:#2C2825;}
@@ -328,7 +599,7 @@ export default function AdminPanel() {
         .ap-row-time{font-size:11px;color:#9E968E;margin-top:2px;}
         .ap-notes{font-size:12px;color:#6B635A;font-style:italic;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
         .ap-notes.na{font-style:normal;color:#C4BAB0;}
-        .ap-status{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.08em;}
+        .ap-status{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.04em;}
         .ap-action-btn{padding:6px 14px;border-radius:3px;border:none;font-family:'Jost',sans-serif;font-size:11px;font-weight:700;letter-spacing:.08em;cursor:pointer;transition:all .2s;}
         .ap-action-btn:disabled{opacity:.5;cursor:not-allowed;}
         .ap-actions{display:flex;gap:8px;flex-wrap:wrap;}
@@ -339,10 +610,15 @@ export default function AdminPanel() {
         .ap-add-btn:hover{background:#B89A6A;}
         .ap-staff-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px;}
         .ap-staff-card{background:#fff;border:1px solid #EDE6DC;border-radius:6px;padding:22px 24px;}
+        .ap-staff-thumb{width:100%;aspect-ratio:16/10;border-radius:4px;overflow:hidden;margin-bottom:16px;background:#EDE6DC;}
+        .ap-staff-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
         .ap-staff-name{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:500;color:#2C2825;margin:0 0 4px;}
         .ap-staff-spec{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#B89A6A;margin-bottom:12px;}
         .ap-staff-info{font-size:13px;font-weight:300;color:#9E968E;line-height:1.7;}
-        .ap-staff-remove{margin-top:14px;background:none;border:1px solid #FECACA;color:#B91C1C;padding:6px 14px;border-radius:3px;font-size:11px;font-family:'Jost',sans-serif;cursor:pointer;transition:all .2s;}
+        .ap-staff-actions{display:flex;gap:10px;margin-top:14px;}
+        .ap-staff-edit{background:none;border:1px solid #E8E0D6;color:#6B635A;padding:6px 14px;border-radius:3px;font-size:11px;font-family:'Jost',sans-serif;cursor:pointer;transition:all .2s;}
+        .ap-staff-edit:hover{border-color:#B89A6A;color:#B89A6A;background:#FBF8F3;}
+        .ap-staff-remove{background:none;border:1px solid #FECACA;color:#B91C1C;padding:6px 14px;border-radius:3px;font-size:11px;font-family:'Jost',sans-serif;cursor:pointer;transition:all .2s;}
         .ap-staff-remove:hover{background:#FEE2E2;}
         .ap-gallery-layout{display:grid;grid-template-columns:360px 1fr;gap:32px;align-items:start;}
         .ap-upload-card{background:#fff;border:1px solid #EDE6DC;border-radius:6px;padding:28px;position:sticky;top:24px;}
@@ -382,6 +658,8 @@ export default function AdminPanel() {
         .ap-form-submit:disabled{opacity:.6;cursor:not-allowed;}
         .ap-form-cancel{padding:12px 20px;background:transparent;border:1px solid #EDE6DC;color:#9E968E;border-radius:3px;font-family:'Jost',sans-serif;font-size:12px;cursor:pointer;}
         .ap-form-cancel:hover{border-color:#B89A6A;}
+        .ap-form-checkbox{display:flex;align-items:center;gap:9px;margin-top:18px;font-family:'Jost',sans-serif;font-size:13px;color:#6B635A;cursor:pointer;}
+        .ap-form-checkbox input{width:15px;height:15px;accent-color:#B89A6A;cursor:pointer;}
         .ap-toast{position:fixed;top:24px;right:24px;z-index:100;padding:14px 20px;border-radius:4px;font-size:13px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,.12);animation:ap-fadein .2s ease;}
         @keyframes ap-fadein{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
         .ap-loading{display:flex;align-items:center;justify-content:center;min-height:50vh;}
@@ -410,16 +688,21 @@ export default function AdminPanel() {
         </div>
       )}
 
+      {newRequestIds.size > 0 && (
+        <div style={{ background:'#FEF3C7', borderBottom:'1px solid #FDE68A', padding:'12px 32px' }}>
+          <p style={{ fontSize:13, color:'#92400E', fontWeight:600, maxWidth:1280, margin:'0 auto' }}>
+            🔔 New change request just received! Check the Requests tab.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="ap-header">
         <div className="ap-header-inner">
-          <div className="ap-logo">Crown <em>&amp; Glow</em> <span style={{ fontSize:11, letterSpacing:'.16em', textTransform:'uppercase', color:'#6B635A', marginLeft:12 }}>Admin</span></div>
-          <div style={{ display:'flex', alignItems:'center' }}>
-            <div style={{ textAlign:'right' }}>
-              <p className="ap-user-name">{user.name}</p>
-              <p className="ap-user-role">Administrator</p>
-            </div>
-            <button className="ap-logout" onClick={async () => { await logout(); router.push('/login'); }}>Logout</button>
+          <div className="ap-logo">Crown <em>&amp; Glow</em></div>
+          <div style={{ textAlign:'right' }}>
+            <p className="ap-user-name">{user.name}</p>
+            <p className="ap-user-role">Administrator</p>
           </div>
         </div>
       </div>
@@ -430,11 +713,14 @@ export default function AdminPanel() {
           {([
             { key:'overview', label:'Overview' },
             { key:'bookings', label:'Bookings' },
+            { key:'requests', label:'Requests', badge: changeRequests.length || undefined },
             { key:'staff',    label:'Staff' },
+            { key:'services', label:`Services (${services.length})` },
             { key:'gallery',  label:`Gallery (${gallery.length})` },
-          ] as { key: AdminTab; label: string }[]).map(t => (
+          ] as { key: AdminTab; label: string; badge?: number }[]).map(t => (
             <button key={t.key} className={`ap-tab${activeTab === t.key ? ' on' : ''}`} onClick={() => setActiveTab(t.key)}>
               {t.label}
+              {!!t.badge && <span className="ap-tab-badge">{t.badge}</span>}
             </button>
           ))}
         </div>
@@ -465,12 +751,13 @@ export default function AdminPanel() {
                     <p className="ap-stat-sub">{s.sub}</p>
                   </div>
                 ))}
-                <div className="ap-stat" style={{ borderColor:'#B89A6A' }}>
+                <Link href="/admin/revenue" className="ap-stat ap-stat-link" style={{ borderColor:'#B89A6A' }}>
                   <p className="ap-stat-label">Revenue</p>
                   <p className="ap-stat-value">${stats.revenue.toLocaleString('en-US')}</p>
                   <p className="ap-stat-sub" style={{ color:'#B89A6A' }}>completed + paid only</p>
                   <p className="ap-rev-note">Excludes pending, cancelled &amp; unpaid</p>
-                </div>
+                  <p className="ap-stat-cta">View full report →</p>
+                </Link>
                 <div className="ap-stat">
                   <p className="ap-stat-label">Gallery</p>
                   <p className="ap-stat-value">{gallery.length}</p>
@@ -478,18 +765,18 @@ export default function AdminPanel() {
                 </div>
               </div>
               <div style={{ background:'#fff', border:'1px solid #EDE6DC', borderRadius:6, overflow:'hidden' }}>
-                <div style={{ padding:'20px 24px', borderBottom:'1px solid #EDE6DC', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <h2 style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, fontWeight:400, color:'#2C2825', margin:0 }}>Recent Bookings</h2>
-                  <button className="ap-filter on" style={{ border:'none' }} onClick={() => setActiveTab('bookings')}>View All →</button>
+                <div style={{ padding:'22px 24px', borderBottom:'1px solid #EDE6DC', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <h2 style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:26, fontWeight:400, color:'#2C2825', margin:0 }}>Recent Bookings</h2>
+                  <button className="ap-viewall" onClick={() => setActiveTab('bookings')}>View All →</button>
                 </div>
                 {bookings.slice(0,5).map(b => {
                   const cfg  = STATUS_CONFIG[b.status];
                   const date = new Date(b.appointment_date);
                   return (
-                    <div key={b.id} style={{ padding:'16px 24px', borderBottom:'1px solid #F5F0EB', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
+                    <div key={b.id} style={{ padding:'22px 24px', borderBottom:'1px solid #F5F0EB', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
                       <div>
-                        <p style={{ fontSize:14, fontWeight:600, color:'#2C2825', margin:'0 0 3px' }}>{b.user.name}</p>
-                        <p style={{ fontSize:12, color:'#9E968E' }}>{b.service.name} · {date.toLocaleDateString('en-US',{month:'short',day:'numeric'})} at {date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</p>
+                        <p style={{ fontSize:16, fontWeight:600, color:'#2C2825', margin:'0 0 5px' }}>{b.user.name}</p>
+                        <p style={{ fontSize:13, fontWeight:400, color:'#9E968E' }}>{b.service.name} · {date.toLocaleDateString('en-US',{month:'short',day:'numeric'})} at {date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</p>
                       </div>
                       <span className="ap-status" style={{ background:cfg.bg, color:cfg.text }}>
                         <span style={{ width:5, height:5, borderRadius:'50%', background:cfg.dot, display:'inline-block' }}/>
@@ -581,17 +868,165 @@ export default function AdminPanel() {
             </>
           )}
 
+          {/* ── Change Requests ── */}
+          {activeTab === 'requests' && (
+            <>
+              <div className="ap-greeting">
+                <h1>Change <em>Requests</em></h1>
+                <p>Customer-submitted edits and cancellations awaiting your approval.</p>
+              </div>
+              {changeRequests.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'60px 24px', background:'#fff', border:'1px solid #EDE6DC', borderRadius:6 }}>
+                  <p style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:24, color:'#9E968E' }}>No pending requests</p>
+                  <p style={{ fontSize:13, color:'#B89A6A', marginTop:8 }}>Customer edit/cancel requests will show up here in real time.</p>
+                </div>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                  {changeRequests.map(req => {
+                    const appt      = req.appointment;
+                    const origDate  = new Date(appt.appointment_date);
+                    const newDate   = req.requested_date ? new Date(req.requested_date) : null;
+                    const isNew     = newRequestIds.has(req.id);
+                    const isCancel  = req.type === 'CANCEL';
+                    const isDeclining = declineDraftId === req.id;
+                    return (
+                      <div
+                        key={req.id}
+                        style={{
+                          background: isNew ? '#F0FDF4' : '#fff',
+                          border: '1px solid #EDE6DC',
+                          borderRadius: 6,
+                          padding: '22px 26px',
+                        }}
+                      >
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16, flexWrap:'wrap' }}>
+                          <div>
+                            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+                              <span
+                                className="ap-status"
+                                style={{
+                                  background: isCancel ? '#FEE2E2' : '#FEF3C7',
+                                  color: isCancel ? '#991B1B' : '#92400E',
+                                }}
+                              >
+                                {isCancel ? 'Cancellation' : 'Edit'} Request
+                              </span>
+                              <span style={{ fontSize:12, color:'#9E968E' }}>
+                                {new Date(req.created_at).toLocaleDateString('en-US', { month:'short', day:'numeric' })} at{' '}
+                                {new Date(req.created_at).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}
+                              </span>
+                            </div>
+                            <p style={{ fontSize:16, fontWeight:600, color:'#2C2825', margin:'0 0 2px' }}>{appt.user.name}</p>
+                            <p style={{ fontSize:12, color:'#9E968E' }}>{appt.user.email}</p>
+                          </div>
+                        </div>
+
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20, marginTop:18 }}>
+                          <div style={{ background:'#FDFAF6', border:'1px solid #EDE6DC', borderRadius:6, padding:'14px 16px' }}>
+                            <p style={{ fontSize:10, fontWeight:700, letterSpacing:'.12em', textTransform:'uppercase', color:'#9E968E', marginBottom:8 }}>
+                              Original Booking
+                            </p>
+                            <p style={{ fontSize:13, color:'#2C2825', fontWeight:500 }}>{appt.service.name}</p>
+                            <p style={{ fontSize:12, color:'#6B635A', marginTop:2 }}>
+                              {origDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} at{' '}
+                              {origDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}
+                            </p>
+                            <p style={{ fontSize:12, color:'#9E968E', marginTop:2 }}>{appt.staff?.name || 'No preference'}</p>
+                          </div>
+
+                          <div style={{ background: isCancel ? '#FEF2F2' : '#F0FDF4', border:'1px solid ' + (isCancel ? '#FECACA' : '#BBF7D0'), borderRadius:6, padding:'14px 16px' }}>
+                            <p style={{ fontSize:10, fontWeight:700, letterSpacing:'.12em', textTransform:'uppercase', color: isCancel ? '#991B1B' : '#065F46', marginBottom:8 }}>
+                              {isCancel ? 'Requested Cancellation' : 'Requested Change'}
+                            </p>
+                            {isCancel ? (
+                              <p style={{ fontSize:13, color:'#991B1B' }}>Cancel this booking entirely</p>
+                            ) : (
+                              <>
+                                <p style={{ fontSize:13, color:'#2C2825', fontWeight:500 }}>
+                                  {req.requestedService?.name || appt.service.name}
+                                </p>
+                                <p style={{ fontSize:12, color:'#065F46', marginTop:2, fontWeight:600 }}>
+                                  {newDate
+                                    ? `${newDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} at ${newDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}`
+                                    : `${origDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} at ${origDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })} (unchanged)`}
+                                </p>
+                                <p style={{ fontSize:12, color:'#6B635A', marginTop:2 }}>
+                                  {req.requestedStaff?.name || appt.staff?.name || 'No preference'}
+                                </p>
+                              </>
+                            )}
+                            {req.customer_note && (
+                              <p style={{ fontSize:12, color:'#6B635A', fontStyle:'italic', marginTop:8 }}>"{req.customer_note}"</p>
+                            )}
+                          </div>
+                        </div>
+
+                        {isDeclining ? (
+                          <div style={{ marginTop:16 }}>
+                            <textarea
+                              value={declineReason}
+                              onChange={e => setDeclineReason(e.target.value)}
+                              placeholder="Reason for the customer (optional)"
+                              maxLength={300}
+                              style={{ width:'100%', padding:'10px 12px', border:'1px solid #EDE6DC', borderRadius:6, fontFamily:"'Jost',sans-serif", fontSize:13, resize:'vertical', minHeight:60 }}
+                            />
+                            <div style={{ display:'flex', gap:10, marginTop:10 }}>
+                              <button
+                                className="ap-action-btn"
+                                style={{ background:'#991B1B', color:'#fff' }}
+                                disabled={resolvingId === req.id}
+                                onClick={() => resolveRequest(req.id, 'DECLINED', declineReason.trim() || undefined)}
+                              >
+                                {resolvingId === req.id ? '…' : 'Confirm Decline'}
+                              </button>
+                              <button
+                                className="ap-action-btn"
+                                style={{ background:'#F5F0EB', color:'#6B635A' }}
+                                onClick={() => { setDeclineDraftId(null); setDeclineReason(''); }}
+                              >
+                                Never Mind
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display:'flex', gap:10, marginTop:18 }}>
+                            <button
+                              className="ap-action-btn"
+                              style={{ background:'#065F46', color:'#fff', padding:'8px 20px' }}
+                              disabled={resolvingId === req.id}
+                              onClick={() => resolveRequest(req.id, 'APPROVED')}
+                            >
+                              {resolvingId === req.id ? '…' : 'Approve'}
+                            </button>
+                            <button
+                              className="ap-action-btn"
+                              style={{ background:'#FEE2E2', color:'#991B1B', padding:'8px 20px' }}
+                              disabled={resolvingId === req.id}
+                              onClick={() => { setDeclineDraftId(req.id); setDeclineReason(''); }}
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
           {/* ── Staff ── */}
           {activeTab === 'staff' && (
             <>
               <div className="ap-section-head">
                 <h2 className="ap-section-title">Staff <em style={{ fontStyle:'italic', color:'#B89A6A' }}>Management</em></h2>
-                <button className="ap-add-btn" onClick={() => setShowStaffForm(true)}>+ Add Staff</button>
+                <button className="ap-add-btn" onClick={openAddStaff}>+ Add Staff</button>
               </div>
               {staff.length === 0 ? (
                 <div style={{ textAlign:'center', padding:'60px 24px', background:'#fff', border:'1px solid #EDE6DC', borderRadius:6 }}>
                   <p style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:24, color:'#9E968E', marginBottom:12 }}>No staff members yet</p>
-                  <button className="ap-add-btn" onClick={() => setShowStaffForm(true)}>Add your first staff member</button>
+                  <button className="ap-add-btn" onClick={openAddStaff}>Add your first staff member</button>
                 </div>
               ) : (
                 <div className="ap-staff-grid">
@@ -604,7 +1039,51 @@ export default function AdminPanel() {
                         {s.phone && <p>📞 {s.phone}</p>}
                         <p style={{ marginTop:6 }}>Status: <span style={{ color:s.isActive ? '#065F46' : '#991B1B', fontWeight:600 }}>{s.isActive ? 'Active' : 'Inactive'}</span></p>
                       </div>
-                      <button className="ap-staff-remove" onClick={() => handleRemoveStaff(s.id, s.name)}>Remove</button>
+                      <div className="ap-staff-actions">
+                        <button className="ap-staff-edit" onClick={() => openEditStaff(s)}>Edit</button>
+                        <button className="ap-staff-remove" onClick={() => handleRemoveStaff(s.id, s.name)}>Remove</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Services ── */}
+          {activeTab === 'services' && (
+            <>
+              <div className="ap-section-head">
+                <h2 className="ap-section-title">Services <em style={{ fontStyle:'italic', color:'#B89A6A' }}>Management</em></h2>
+                <button className="ap-add-btn" onClick={openAddService}>+ Add Service</button>
+              </div>
+              {services.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'60px 24px', background:'#fff', border:'1px solid #EDE6DC', borderRadius:6 }}>
+                  <p style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:24, color:'#9E968E', marginBottom:12 }}>No services yet</p>
+                  <button className="ap-add-btn" onClick={openAddService}>Add your first service</button>
+                </div>
+              ) : (
+                <div className="ap-staff-grid">
+                  {services.map(sv => (
+                    <div key={sv.id} className="ap-staff-card">
+                      {sv.image && (
+                        <div className="ap-staff-thumb">
+                          <img src={sv.image} alt={sv.name} />
+                        </div>
+                      )}
+                      <h3 className="ap-staff-name">{sv.name}</h3>
+                      <p className="ap-staff-spec">
+                        {SERVICE_CATEGORIES.find(c => c.value === sv.category)?.label || sv.category}
+                      </p>
+                      <div className="ap-staff-info">
+                        {sv.description && <p>{sv.description}</p>}
+                        <p style={{ marginTop:6 }}>⏱ {sv.duration} min &nbsp;·&nbsp; ${Number(sv.price).toFixed(2)}</p>
+                        <p style={{ marginTop:6 }}>Status: <span style={{ color:sv.isActive ? '#065F46' : '#991B1B', fontWeight:600 }}>{sv.isActive ? 'Active' : 'Inactive'}</span></p>
+                      </div>
+                      <div className="ap-staff-actions">
+                        <button className="ap-staff-edit" onClick={() => openEditService(sv)}>Edit</button>
+                        <button className="ap-staff-remove" onClick={() => handleRemoveService(sv.id, sv.name)}>Remove</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -692,12 +1171,12 @@ export default function AdminPanel() {
         </div>
       )}
 
-      {/* Add Staff Modal */}
+      {/* Add / Edit Staff Modal */}
       {showStaffForm && (
-        <div className="ap-form-overlay" onClick={() => setShowStaffForm(false)}>
+        <div className="ap-form-overlay" onClick={closeStaffForm}>
           <div className="ap-form-card" onClick={e => e.stopPropagation()}>
-            <h2 className="ap-form-title">Add Staff Member</h2>
-            <form onSubmit={handleAddStaff}>
+            <h2 className="ap-form-title">{editingStaffId ? 'Edit Staff Member' : 'Add Staff Member'}</h2>
+            <form onSubmit={handleSaveStaff}>
               <div className="ap-form-field" style={{ marginTop:0 }}>
                 <label className="ap-form-label">Full Name *</label>
                 <input className="ap-form-input" type="text" required value={staffForm.name} placeholder="Priya Sharma" onChange={e => setStaffForm(p => ({ ...p, name:e.target.value }))}/>
@@ -714,9 +1193,80 @@ export default function AdminPanel() {
                 <label className="ap-form-label">Phone</label>
                 <input className="ap-form-input" type="tel" value={staffForm.phone} placeholder="(317) 555-0187" onChange={e => setStaffForm(p => ({ ...p, phone:e.target.value }))}/>
               </div>
+              {editingStaffId && (
+                <label className="ap-form-checkbox">
+                  <input type="checkbox" checked={staffForm.isActive} onChange={e => setStaffForm(p => ({ ...p, isActive:e.target.checked }))}/>
+                  <span>Active (visible to customers for booking)</span>
+                </label>
+              )}
               <div className="ap-form-actions">
-                <button type="submit" className="ap-form-submit" disabled={staffLoading}>{staffLoading ? 'Adding…' : 'Add Staff Member'}</button>
-                <button type="button" className="ap-form-cancel" onClick={() => setShowStaffForm(false)}>Cancel</button>
+                <button type="submit" className="ap-form-submit" disabled={staffLoading}>
+                  {staffLoading ? (editingStaffId ? 'Saving…' : 'Adding…') : (editingStaffId ? 'Save Changes' : 'Add Staff Member')}
+                </button>
+                <button type="button" className="ap-form-cancel" onClick={closeStaffForm}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Service Modal */}
+      {showServiceForm && (
+        <div className="ap-form-overlay" onClick={closeServiceForm}>
+          <div className="ap-form-card" onClick={e => e.stopPropagation()}>
+            <h2 className="ap-form-title">{editingServiceId ? 'Edit Service' : 'Add Service'}</h2>
+            <form onSubmit={handleSaveService}>
+              <div className="ap-form-field" style={{ marginTop:0 }}>
+                <label className="ap-form-label">Service Name *</label>
+                <input className="ap-form-input" type="text" required value={serviceForm.name} placeholder="e.g. Eyebrow Lamination" onChange={e => setServiceForm(p => ({ ...p, name:e.target.value }))}/>
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Category *</label>
+                <select className="ap-form-select" value={serviceForm.category} onChange={e => setServiceForm(p => ({ ...p, category:e.target.value as ServiceCategory }))}>
+                  {SERVICE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Description</label>
+                <input className="ap-form-input" type="text" value={serviceForm.description} placeholder="Brief description shown to customers" onChange={e => setServiceForm(p => ({ ...p, description:e.target.value }))}/>
+              </div>
+              <div className="ap-form-field" style={{ display:'flex', gap:12 }}>
+                <div style={{ flex:1 }}>
+                  <label className="ap-form-label">Duration (min) *</label>
+                  <input className="ap-form-input" type="number" min={1} max={480} required value={serviceForm.duration} placeholder="45" onChange={e => setServiceForm(p => ({ ...p, duration:e.target.value }))}/>
+                </div>
+                <div style={{ flex:1 }}>
+                  <label className="ap-form-label">Price ($) *</label>
+                  <input className="ap-form-input" type="number" min={0} step="0.01" required value={serviceForm.price} placeholder="45.00" onChange={e => setServiceForm(p => ({ ...p, price:e.target.value }))}/>
+                </div>
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Photo</label>
+                <div className="ap-drop-zone" onClick={() => serviceFileInputRef.current?.click()}>
+                  <input ref={serviceFileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleServiceFileSelect} style={{ display:'none' }}/>
+                  {servicePreviewUrl || serviceForm.image ? (
+                    <img src={servicePreviewUrl || serviceForm.image} alt="Preview" className="ap-preview"/>
+                  ) : (
+                    <>
+                      <div className="ap-drop-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+                          <polyline points="21,15 16,10 5,21"/>
+                        </svg>
+                      </div>
+                      <p className="ap-drop-text">Click to select photo</p>
+                      <p className="ap-drop-hint">JPG, PNG or WebP · Max 10MB</p>
+                    </>
+                  )}
+                </div>
+                {selectedServiceFile && <p style={{ fontSize:12, color:'#9E968E', marginTop:8, textAlign:'center' }}>{selectedServiceFile.name} · {(selectedServiceFile.size/1024/1024).toFixed(2)}MB</p>}
+                {serviceUploading && <div className="ap-progress"><div className="ap-progress-bar" style={{ width:`${serviceUploadProgress}%` }}/></div>}
+              </div>
+              <div className="ap-form-actions">
+                <button type="submit" className="ap-form-submit" disabled={serviceLoading}>
+                  {serviceLoading ? (editingServiceId ? 'Saving…' : 'Adding…') : (editingServiceId ? 'Save Changes' : 'Add Service')}
+                </button>
+                <button type="button" className="ap-form-cancel" onClick={closeServiceForm}>Cancel</button>
               </div>
             </form>
           </div>

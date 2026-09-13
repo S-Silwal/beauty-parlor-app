@@ -177,6 +177,17 @@ const sampleGallery = [
 ];
 
 async function seed() {
+  // This script creates a known admin/customer login (overridable below, but
+  // defaulting to admin123/customer123). Never let it run unattended
+  // against a production database.
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "true") {
+    console.error(
+      "❌ Refusing to seed a production environment (NODE_ENV=production). " +
+      "If you really mean to do this, re-run with ALLOW_PROD_SEED=true."
+    );
+    process.exit(1);
+  }
+
   try {
     console.log("🌱 Starting database seeding...");
 
@@ -216,9 +227,13 @@ async function seed() {
     });
     console.log(`✅ ${sampleGallery.length} gallery images seeded`);
 
-    // Seed Admin User
-    const adminEmail = "admin@lumina.com";
-    const adminPassword = "admin123";
+    // Seed Admin User — override via env vars so the credential isn't a
+    // permanently-known constant baked into the repo.
+    const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin@lumina.com";
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD || "admin123";
+    if (!process.env.SEED_ADMIN_PASSWORD) {
+      console.warn("⚠️  Using default dev admin password — set SEED_ADMIN_PASSWORD to override.");
+    }
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
     await prisma.user.upsert({
@@ -236,8 +251,8 @@ async function seed() {
     console.log(`✅ Admin user created: ${adminEmail}`);
 
     // Seed Test Customer
-    const customerEmail = "customer@lumina.com";
-    const customerPassword = "customer123";
+    const customerEmail = process.env.SEED_CUSTOMER_EMAIL || "customer@lumina.com";
+    const customerPassword = process.env.SEED_CUSTOMER_PASSWORD || "customer123";
     const customerHashed = await bcrypt.hash(customerPassword, 10);
 
     await prisma.user.upsert({

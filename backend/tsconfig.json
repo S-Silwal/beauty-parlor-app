@@ -33,5 +33,12 @@
     }
   },
   "include": ["src/**/*.ts", "prisma/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist"],
+
+  // ts-node otherwise ignores "include"/"exclude" and only compiles files it
+  // reaches via require() — which skips ambient .d.ts declaration merging
+  // (e.g. src/types/express.d.ts) unless explicitly opted in here.
+  "ts-node": {
+    "files": true
+  }
 }

@@ -6,7 +6,6 @@ const BRAND = {
   address: '456 Glow Avenue, Suite 200, Indianapolis, IN 46204',
   phone: '(317) 555-0187',
   website: 'https://crownandglow.com',
-  unsubscribe: 'https://crownandglow.com/unsubscribe',
 };
 
 // ── Base wrapper ─────────────────────────────────────────────────────────────
@@ -71,7 +70,7 @@ const baseTemplate = (content: string, previewText: string) => `
           <a href="mailto:hello@crownandglow.com" class="footer-link">hello@crownandglow.com</a>
         </p>
         <p class="footer-text" style="margin-top:12px;">
-          <a href="${BRAND.unsubscribe}?email={{email}}" class="footer-link">Unsubscribe</a> ·
+          <a href="{{unsubscribeUrl}}" class="footer-link">Unsubscribe</a> ·
           <a href="${BRAND.website}/privacy" class="footer-link">Privacy Policy</a>
         </p>
       </div>

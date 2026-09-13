@@ -5,18 +5,98 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { initSocket } from '@/lib/socket';
+import { api } from '@/lib/api';
 import Link from 'next/link';
 
 type AppointmentStatus = 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'RESCHEDULED';
 
 interface Booking {
   id: string;
-  service: { name: string; duration?: number };
-  staff?: { name: string };
+  service: { id: string; name: string; duration?: number };
+  staff?: { id: string; name: string } | null;
+  staff_id?: string | null;
+  service_id: string;
   appointment_date: string;
   status: AppointmentStatus;
   total_price: number;
   notes?: string;
+}
+
+interface MyReview {
+  rating: number;
+  comment?: string | null;
+}
+
+interface ChangeRequest {
+  id: string;
+  appointment_id: string;
+  type: 'EDIT' | 'CANCEL';
+  status: 'PENDING' | 'APPROVED' | 'DECLINED';
+}
+
+interface ServiceOption {
+  id: string;
+  name: string;
+  duration?: number;
+}
+
+interface StaffOption {
+  id: string;
+  name: string;
+}
+
+// Local calendar date/time parts of an ISO string — never derive these via
+// toISOString() or a UTC-based parse, which silently shift the displayed
+// day/time in negative-UTC-offset zones (the exact bug already fixed
+// elsewhere in this app's date handling).
+function localDateAndSlot(iso: string): { date: string; slot: string } {
+  const d = new Date(iso);
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const slot = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return { date, slot };
+}
+
+function localTodayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function formatSlotTime(slot: string): string {
+  if (!slot) return '';
+  const [hour, minute] = slot.split(':').map(Number);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${String(minute).padStart(2, '0')} ${ampm}`;
+}
+
+// A five-star picker — used both to collect a new rating (clickable) and to
+// render an already-submitted one (readOnly just disables the handlers).
+function StarPicker({
+  value, onChange, readOnly = false,
+}: { value: number; onChange?: (n: number) => void; readOnly?: boolean }) {
+  const [hover, setHover] = useState(0);
+  const shown = hover || value;
+  return (
+    <div style={{ display: 'flex', gap: 4 }} onMouseLeave={() => setHover(0)}>
+      {[1, 2, 3, 4, 5].map(n => (
+        <button
+          key={n}
+          type="button"
+          disabled={readOnly}
+          aria-label={`${n} star${n > 1 ? 's' : ''}`}
+          onMouseEnter={() => !readOnly && setHover(n)}
+          onClick={() => !readOnly && onChange?.(n)}
+          style={{
+            fontSize: 20, lineHeight: 1, background: 'none', border: 'none', padding: 0,
+            color: n <= shown ? '#B89A6A' : '#DCD3C4',
+            cursor: readOnly ? 'default' : 'pointer',
+          }}
+        >
+          ★
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // ── Time-based greeting ───────────────────────────────────────────────────────
@@ -37,7 +117,7 @@ const STATUS_STYLE: Record<AppointmentStatus, { bg: string; text: string; dot: s
 };
 
 export default function CustomerDashboard() {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, logout, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [bookings, setBookings]   = useState<Booking[]>([]);
@@ -45,8 +125,43 @@ export default function CustomerDashboard() {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>('upcoming');
   const [greeting] = useState(getGreeting()); // computed once on mount
 
+  // ── Post-service ratings (History tab) ────────────────────────────────────
+  const [reviews, setReviews]         = useState<Record<string, MyReview>>({});
+  const [openRatingId, setOpenRatingId] = useState<string | null>(null);
+  const [draftRating, setDraftRating]   = useState(0);
+  const [draftComment, setDraftComment] = useState('');
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [ratingError, setRatingError]   = useState('');
+
+  // ── Edit/cancel requests (Upcoming tab) ────────────────────────────────────
+  // Keyed by appointment_id — only ever holds a booking's currently PENDING
+  // request, if it has one, so the UI knows to show "awaiting approval"
+  // instead of the Edit/Cancel buttons (one live request per booking).
+  const [changeRequests, setChangeRequests] = useState<Record<string, ChangeRequest>>({});
+  const [servicesList, setServicesList]     = useState<ServiceOption[]>([]);
+  const [staffList, setStaffList]           = useState<StaffOption[]>([]);
+
+  const [openEditId, setOpenEditId]         = useState<string | null>(null);
+  const [editDate, setEditDate]             = useState('');
+  const [editSlot, setEditSlot]             = useState('');
+  const [editStaffId, setEditStaffId]       = useState('');
+  const [editServiceId, setEditServiceId]   = useState('');
+  const [editSlots, setEditSlots]           = useState<string[]>([]);
+  const [editSlotsLoading, setEditSlotsLoading] = useState(false);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError]           = useState('');
+
+  const [openCancelId, setOpenCancelId]         = useState<string | null>(null);
+  const [cancelReason, setCancelReason]         = useState('');
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [cancelError, setCancelError]           = useState('');
+
   // ── Route protection ──────────────────────────────────────────────────────
+  // Wait for AuthContext to finish its async /api/auth/me check before
+  // deciding to redirect — otherwise a genuinely logged-in user gets
+  // bounced to /login on every refresh because `user` starts as null.
   useEffect(() => {
+    if (authLoading) return;
     if (!user) {
       router.push('/login');
       return;
@@ -55,7 +170,7 @@ export default function CustomerDashboard() {
     if (isAdmin) {
       router.push('/admin');
     }
-  }, [user, isAdmin, router]);
+  }, [user, isAdmin, authLoading, router]);
 
   // ── Fetch bookings ────────────────────────────────────────────────────────
   const fetchBookings = async () => {
@@ -74,18 +189,256 @@ export default function CustomerDashboard() {
     }
   };
 
+  // ── Fetch this customer's own submitted reviews ──────────────────────────
+  // Keyed by appointment_id so a completed booking's card can tell whether
+  // it's already been rated (and show that rating) or still needs the
+  // rating form.
+  const fetchReviews = async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (!token) return;
+      const data = await api.getMyReviews(token);
+      if (data.success) {
+        const map: Record<string, MyReview> = {};
+        for (const r of data.reviews || []) {
+          map[r.appointment_id] = { rating: r.rating, comment: r.comment };
+        }
+        setReviews(map);
+      }
+    } catch (err) {
+      console.error('Failed to fetch reviews', err);
+    }
+  };
+
+  // ── Fetch this customer's own pending change requests ────────────────────
+  const fetchChangeRequests = async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (!token) return;
+      const data = await api.getMyChangeRequests(token);
+      if (data.success) {
+        const map: Record<string, ChangeRequest> = {};
+        for (const r of data.requests || []) {
+          if (r.status === 'PENDING') map[r.appointment_id] = r;
+        }
+        setChangeRequests(map);
+      }
+    } catch (err) {
+      console.error('Failed to fetch change requests', err);
+    }
+  };
+
+  // Services/staff options for the Edit-booking form's dropdowns.
+  const fetchEditOptions = async () => {
+    try {
+      const [servicesRes, staffRes] = await Promise.all([api.getServices(), api.getStaff()]);
+      if (servicesRes.success) setServicesList(servicesRes.services || []);
+      if (staffRes?.success) setStaffList(staffRes.staff || []);
+    } catch (err) {
+      console.error('Failed to load services/staff', err);
+    }
+  };
+
   useEffect(() => {
     if (!user || isAdmin) return;
-    fetchBookings();
+
+    (async () => {
+      await Promise.all([fetchBookings(), fetchReviews(), fetchChangeRequests(), fetchEditOptions()]);
+    })();
 
     const socket = initSocket();
     socket.on('bookingCreated', fetchBookings);
-    socket.on('bookingUpdated', fetchBookings);
+    socket.on('bookingUpdated', () => {
+      fetchBookings();
+      fetchReviews();
+    });
+    // An admin approved/declined one of this customer's requests — refresh
+    // both the booking (its date/staff/status may have just changed) and
+    // the request map (so the "awaiting approval" banner clears).
+    socket.on('changeRequestResolved', () => {
+      fetchBookings();
+      fetchChangeRequests();
+    });
     return () => {
       socket.off('bookingCreated');
       socket.off('bookingUpdated');
+      socket.off('changeRequestResolved');
     };
   }, [user, isAdmin]);
+
+  // Re-fetch available times whenever the edit form's date/staff/service
+  // selection changes, so the picker only ever offers slots that are
+  // actually free for that combination.
+  useEffect(() => {
+    if (!openEditId || !editDate) return;
+    let cancelled = false;
+    (async () => {
+      setEditSlotsLoading(true);
+      try {
+        const res = await api.getAvailableSlots(editDate, editStaffId || undefined, editServiceId || undefined);
+        let slots: string[] = res.success ? (res.data?.availableSlots || []) : [];
+
+        // The booking being edited is itself an existing appointment for
+        // this staff+time, so the slots endpoint (which has no notion of
+        // "self") excludes it like any other conflict. If the date/staff
+        // in the form still match the original booking, put its own slot
+        // back in so it doesn't look unavailable to the person who holds it.
+        const original = bookings.find(b => b.id === openEditId);
+        if (original) {
+          const { date: origDate, slot: origSlot } = localDateAndSlot(original.appointment_date);
+          const origStaff = original.staff_id || '';
+          if (editDate === origDate && (editStaffId || '') === origStaff && !slots.includes(origSlot)) {
+            slots = [...slots, origSlot].sort();
+          }
+        }
+
+        if (!cancelled) setEditSlots(slots);
+      } catch {
+        if (!cancelled) setEditSlots([]);
+      } finally {
+        if (!cancelled) setEditSlotsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [openEditId, editDate, editStaffId, editServiceId, bookings]);
+
+  // ── Rating form handlers ──────────────────────────────────────────────────
+  const openRatingForm = (bookingId: string) => {
+    setOpenRatingId(bookingId);
+    setDraftRating(0);
+    setDraftComment('');
+    setRatingError('');
+  };
+
+  const closeRatingForm = () => {
+    setOpenRatingId(null);
+    setRatingError('');
+  };
+
+  const submitRating = async (bookingId: string) => {
+    if (draftRating < 1) {
+      setRatingError('Please select a star rating.');
+      return;
+    }
+    const token = localStorage.getItem('accessToken');
+    if (!token) { router.push('/login'); return; }
+
+    setSubmittingId(bookingId);
+    setRatingError('');
+    try {
+      const res = await api.submitReview(
+        { appointment_id: bookingId, rating: draftRating, comment: draftComment.trim() || undefined },
+        token
+      );
+      if (res.success) {
+        setReviews(prev => ({
+          ...prev,
+          [bookingId]: { rating: draftRating, comment: draftComment.trim() || undefined },
+        }));
+        setOpenRatingId(null);
+      } else {
+        setRatingError(res.message || 'Failed to submit rating');
+      }
+    } catch {
+      setRatingError('Failed to submit rating. Please try again.');
+    } finally {
+      setSubmittingId(null);
+    }
+  };
+
+  // ── Edit-request form handlers ────────────────────────────────────────────
+  const openEditForm = (booking: Booking) => {
+    const { date, slot } = localDateAndSlot(booking.appointment_date);
+    setOpenCancelId(null);
+    setOpenEditId(booking.id);
+    setEditDate(date);
+    setEditSlot(slot);
+    setEditStaffId(booking.staff_id || '');
+    setEditServiceId(booking.service_id);
+    setEditSlots([]);
+    setEditError('');
+  };
+
+  const closeEditForm = () => {
+    setOpenEditId(null);
+    setEditError('');
+  };
+
+  const submitEditRequest = async (booking: Booking) => {
+    const { date: origDate, slot: origSlot } = localDateAndSlot(booking.appointment_date);
+    const origStaffId = booking.staff_id || '';
+
+    // Only send what actually changed — an empty payload has nothing for
+    // an admin to approve, and the backend requires at least one field.
+    const payload: { requested_date?: string; requested_staff_id?: string; requested_service_id?: string } = {};
+    if (editDate !== origDate || editSlot !== origSlot) {
+      payload.requested_date = `${editDate}T${editSlot}:00`;
+    }
+    if (editStaffId && editStaffId !== origStaffId) {
+      payload.requested_staff_id = editStaffId;
+    }
+    if (editServiceId && editServiceId !== booking.service_id) {
+      payload.requested_service_id = editServiceId;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setEditError('Change the date, time, staff, or service before submitting.');
+      return;
+    }
+
+    const token = localStorage.getItem('accessToken');
+    if (!token) { router.push('/login'); return; }
+
+    setEditSubmitting(true);
+    setEditError('');
+    try {
+      const res = await api.requestEditBooking(booking.id, payload, token);
+      if (res.success) {
+        setChangeRequests(prev => ({ ...prev, [booking.id]: res.request }));
+        setOpenEditId(null);
+      } else {
+        setEditError(res.message || 'Failed to submit request');
+      }
+    } catch {
+      setEditError('Failed to submit request. Please try again.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  // ── Cancel-request form handlers ──────────────────────────────────────────
+  const openCancelForm = (bookingId: string) => {
+    setOpenEditId(null);
+    setOpenCancelId(bookingId);
+    setCancelReason('');
+    setCancelError('');
+  };
+
+  const closeCancelForm = () => {
+    setOpenCancelId(null);
+    setCancelError('');
+  };
+
+  const submitCancelRequest = async (bookingId: string) => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) { router.push('/login'); return; }
+
+    setCancelSubmitting(true);
+    setCancelError('');
+    try {
+      const res = await api.requestCancelBooking(bookingId, cancelReason.trim() || undefined, token);
+      if (res.success) {
+        setChangeRequests(prev => ({ ...prev, [bookingId]: res.request }));
+        setOpenCancelId(null);
+      } else {
+        setCancelError(res.message || 'Failed to submit cancellation request');
+      }
+    } catch {
+      setCancelError('Failed to submit cancellation request. Please try again.');
+    } finally {
+      setCancelSubmitting(false);
+    }
+  };
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const now      = new Date();
@@ -108,7 +461,7 @@ export default function CustomerDashboard() {
 
   const displayed = activeTab === 'upcoming' ? upcoming : history;
 
-  if (!user || isAdmin) return null;
+  if (authLoading || !user || isAdmin) return null;
 
   return (
     <div style={{ minHeight: '100vh', background: '#F7F3EE', fontFamily: "'Jost', sans-serif" }}>
@@ -148,13 +501,48 @@ export default function CustomerDashboard() {
 
         /* Booking cards */
         .db-cards { display:flex; flex-direction:column; gap:16px; }
-        .db-card { background:#fff; border:1px solid #EDE6DC; border-radius:6px; padding:24px 28px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; transition:box-shadow .2s; }
+        .db-card { background:#fff; border:1px solid #EDE6DC; border-radius:6px; padding:24px 28px; display:flex; flex-direction:column; gap:16px; transition:box-shadow .2s; }
         .db-card:hover { box-shadow:0 4px 20px rgba(44,40,37,.07); }
+        .db-card-top { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
         .db-card-service { font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:500; color:#2C2825; margin:0 0 5px; }
         .db-card-meta { font-size:13px; font-weight:300; color:#9E968E; }
         .db-card-right { text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
         .db-status { display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:.06em; }
         .db-price { font-family:'Cormorant Garamond',serif; font-size:22px; font-weight:500; color:#2C2825; }
+
+        /* Post-service rating */
+        .db-rate { border-top:1px solid #EDE6DC; padding-top:16px; }
+        .db-rate-label { font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:#9E968E; margin-bottom:10px; }
+        .db-rate-comment { font-size:13px; font-weight:300; color:#6B635A; font-style:italic; margin-top:10px; }
+        .db-rate-textarea { width:100%; margin-top:12px; padding:12px 14px; border:1px solid #EDE6DC; border-radius:6px; font-family:'Jost',sans-serif; font-size:13px; color:#2C2825; resize:vertical; min-height:72px; }
+        .db-rate-textarea:focus { outline:none; border-color:#B89A6A; }
+        .db-rate-actions { display:flex; gap:10px; margin-top:14px; }
+        .db-rate-error { font-size:12px; color:#B91C1C; margin-top:8px; }
+        .db-rate-trigger { background:none; border:none; padding:0; font-family:'Jost',sans-serif; font-size:13px; font-weight:600; color:#B89A6A; cursor:pointer; transition:color .2s; }
+        .db-rate-trigger:hover { color:#8F7850; }
+
+        /* Edit / cancel requests */
+        .db-change { border-top:1px solid #EDE6DC; padding-top:16px; }
+        .db-change-pending { display:flex; align-items:center; gap:10px; padding:10px 14px; background:#FEF3C7; border-radius:6px; }
+        .db-change-pending-dot { width:7px; height:7px; border-radius:50%; background:#F59E0B; flex-shrink:0; }
+        .db-change-pending-text { font-size:13px; color:#92400E; font-weight:500; }
+        .db-change-actions { display:flex; gap:20px; }
+        .db-change-link { background:none; border:none; padding:0; font-family:'Jost',sans-serif; font-size:13px; font-weight:600; cursor:pointer; transition:color .2s; }
+        .db-change-link.edit { color:#2C2825; }
+        .db-change-link.edit:hover { color:#B89A6A; }
+        .db-change-link.cancel { color:#B91C1C; }
+        .db-change-link.cancel:hover { color:#7F1D1D; }
+        .db-edit-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:12px; }
+        .db-edit-field label { display:block; font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#9E968E; margin-bottom:6px; }
+        .db-edit-field select, .db-edit-field input[type="date"] { width:100%; padding:10px 12px; border:1px solid #EDE6DC; border-radius:6px; font-family:'Jost',sans-serif; font-size:13px; color:#2C2825; background:#fff; }
+        .db-edit-field select:focus, .db-edit-field input:focus { outline:none; border-color:#B89A6A; }
+        .db-slot-grid { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+        .db-slot-btn { padding:8px 14px; border-radius:6px; border:1px solid #EDE6DC; background:#fff; font-family:'Jost',sans-serif; font-size:12px; color:#2C2825; cursor:pointer; transition:all .15s; }
+        .db-slot-btn.on { background:#2C2825; color:#F7F3EE; border-color:#2C2825; }
+        .db-slot-btn:hover:not(.on) { border-color:#B89A6A; color:#B89A6A; }
+        .db-action-danger { background:#B91C1C; color:#fff; border:none; padding:10px 22px; border-radius:3px; font-family:'Jost',sans-serif; font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; transition:background .2s; }
+        .db-action-danger:hover { background:#7F1D1D; }
+        .db-action-danger:disabled { opacity:.6; cursor:not-allowed; }
 
         /* Empty */
         .db-empty { text-align:center; padding:60px 24px; background:#fff; border:1px solid #EDE6DC; border-radius:6px; }
@@ -168,8 +556,9 @@ export default function CustomerDashboard() {
 
         @media(max-width:640px) {
           .db-wrap { padding:32px 16px 60px; }
-          .db-card { flex-direction:column; align-items:flex-start; }
+          .db-card-top { flex-direction:column; align-items:flex-start; }
           .db-card-right { align-items:flex-start; text-align:left; }
+          .db-edit-grid { grid-template-columns:1fr; }
         }
       `}</style>
 
@@ -270,34 +659,231 @@ export default function CustomerDashboard() {
         ) : (
           <div className="db-cards">
             {displayed.map(booking => {
-              const style   = STATUS_STYLE[booking.status];
-              const apptDate = new Date(booking.appointment_date);
+              const style     = STATUS_STYLE[booking.status];
+              const apptDate  = new Date(booking.appointment_date);
+              const canRate   = booking.status === 'COMPLETED';
+              const myReview  = reviews[booking.id];
+              // Upcoming (PENDING/CONFIRMED) bookings can have an edit or
+              // cancellation requested — completed/cancelled ones cannot.
+              const canRequestChange = booking.status === 'PENDING' || booking.status === 'CONFIRMED';
+              const pendingRequest   = changeRequests[booking.id];
               return (
                 <div key={booking.id} className="db-card">
-                  <div>
-                    <h3 className="db-card-service">{booking.service.name}</h3>
-                    <p className="db-card-meta">
-                      {apptDate.toLocaleDateString('en-US', { weekday:'short', month:'long', day:'numeric', year:'numeric' })}
-                      {' · '}
-                      {apptDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}
-                      {booking.staff && ` · ${booking.staff.name}`}
-                    </p>
-                    {booking.notes && (
-                      <p className="db-card-meta" style={{ marginTop: 4, fontStyle: 'italic' }}>
-                        "{booking.notes}"
+                  <div className="db-card-top">
+                    <div>
+                      <h3 className="db-card-service">{booking.service.name}</h3>
+                      <p className="db-card-meta">
+                        {apptDate.toLocaleDateString('en-US', { weekday:'short', month:'long', day:'numeric', year:'numeric' })}
+                        {' · '}
+                        {apptDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}
+                        {booking.staff && ` · ${booking.staff.name}`}
                       </p>
-                    )}
+                      {booking.notes && (
+                        <p className="db-card-meta" style={{ marginTop: 4, fontStyle: 'italic' }}>
+                          "{booking.notes}"
+                        </p>
+                      )}
+                    </div>
+                    <div className="db-card-right">
+                      <span
+                        className="db-status"
+                        style={{ background: style.bg, color: style.text }}
+                      >
+                        <span style={{ width:6, height:6, borderRadius:'50%', background:style.dot, display:'inline-block' }}/>
+                        {style.label}
+                      </span>
+                      <p className="db-price">${Number(booking.total_price).toLocaleString('en-US')}</p>
+                    </div>
                   </div>
-                  <div className="db-card-right">
-                    <span
-                      className="db-status"
-                      style={{ background: style.bg, color: style.text }}
-                    >
-                      <span style={{ width:6, height:6, borderRadius:'50%', background:style.dot, display:'inline-block' }}/>
-                      {style.label}
-                    </span>
-                    <p className="db-price">${Number(booking.total_price).toLocaleString('en-US')}</p>
-                  </div>
+
+                  {/* Rating: only offered once the service has actually been
+                      delivered (status COMPLETED). One rating per booking —
+                      once submitted, the card just shows what was left. */}
+                  {canRate && (
+                    <div className="db-rate">
+                      {myReview ? (
+                        <div>
+                          <p className="db-rate-label">Your Rating</p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <StarPicker value={myReview.rating} readOnly />
+                            <span style={{ fontSize: 13, color: '#9E968E' }}>{myReview.rating}/5</span>
+                          </div>
+                          {myReview.comment && (
+                            <p className="db-rate-comment">&quot;{myReview.comment}&quot;</p>
+                          )}
+                        </div>
+                      ) : openRatingId === booking.id ? (
+                        <div>
+                          <p className="db-rate-label">Rate This Service</p>
+                          <StarPicker value={draftRating} onChange={setDraftRating} />
+                          <textarea
+                            className="db-rate-textarea"
+                            value={draftComment}
+                            onChange={e => setDraftComment(e.target.value)}
+                            placeholder="Share your experience (optional)"
+                            maxLength={500}
+                          />
+                          {ratingError && <p className="db-rate-error">{ratingError}</p>}
+                          <div className="db-rate-actions">
+                            <button
+                              type="button"
+                              className="db-btn-primary"
+                              style={{ border: 'none', fontSize: 11, padding: '10px 22px' }}
+                              onClick={() => submitRating(booking.id)}
+                              disabled={submittingId === booking.id}
+                            >
+                              {submittingId === booking.id ? 'Submitting…' : 'Submit Rating'}
+                            </button>
+                            <button
+                              type="button"
+                              className="db-btn-ghost"
+                              style={{ fontSize: 11, padding: '10px 22px' }}
+                              onClick={closeRatingForm}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button" className="db-rate-trigger" onClick={() => openRatingForm(booking.id)}>
+                          ★ Rate this service
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Edit / cancel request: only offered on upcoming bookings,
+                      and only one live request per booking — once submitted,
+                      the card shows "awaiting approval" instead of the form. */}
+                  {canRequestChange && (
+                    <div className="db-change">
+                      {pendingRequest ? (
+                        <div className="db-change-pending">
+                          <span className="db-change-pending-dot" />
+                          <span className="db-change-pending-text">
+                            {pendingRequest.type === 'CANCEL' ? 'Cancellation' : 'Change'} requested — awaiting salon approval
+                          </span>
+                        </div>
+                      ) : openEditId === booking.id ? (
+                        <div>
+                          <p className="db-rate-label">Request a Change</p>
+                          <div className="db-edit-grid">
+                            <div className="db-edit-field">
+                              <label>Service</label>
+                              <select value={editServiceId} onChange={e => setEditServiceId(e.target.value)}>
+                                {servicesList.length === 0 && <option value={editServiceId}>{booking.service.name}</option>}
+                                {servicesList.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="db-edit-field">
+                              <label>Staff</label>
+                              <select value={editStaffId} onChange={e => setEditStaffId(e.target.value)}>
+                                {!booking.staff_id && <option value="">No preference</option>}
+                                {staffList.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="db-edit-field">
+                              <label>Date</label>
+                              <input
+                                type="date"
+                                value={editDate}
+                                min={localTodayStr()}
+                                onChange={e => setEditDate(e.target.value)}
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: 14 }}>
+                            <label style={{ display:'block', fontSize:11, fontWeight:600, letterSpacing:'.06em', textTransform:'uppercase', color:'#9E968E', marginBottom:6 }}>
+                              Time
+                            </label>
+                            <div className="db-slot-grid">
+                              {editSlotsLoading ? (
+                                <span style={{ fontSize:12, color:'#9E968E' }}>Loading available times…</span>
+                              ) : editSlots.length === 0 ? (
+                                <span style={{ fontSize:12, color:'#9E968E' }}>No available times for this date</span>
+                              ) : (
+                                editSlots.map(slot => (
+                                  <button
+                                    key={slot}
+                                    type="button"
+                                    className={`db-slot-btn${editSlot === slot ? ' on' : ''}`}
+                                    onClick={() => setEditSlot(slot)}
+                                  >
+                                    {formatSlotTime(slot)}
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          </div>
+
+                          {editError && <p className="db-rate-error">{editError}</p>}
+                          <div className="db-rate-actions">
+                            <button
+                              type="button"
+                              className="db-btn-primary"
+                              style={{ border: 'none', fontSize: 11, padding: '10px 22px' }}
+                              disabled={editSubmitting}
+                              onClick={() => submitEditRequest(booking)}
+                            >
+                              {editSubmitting ? 'Submitting…' : 'Submit Change Request'}
+                            </button>
+                            <button
+                              type="button"
+                              className="db-btn-ghost"
+                              style={{ fontSize: 11, padding: '10px 22px' }}
+                              onClick={closeEditForm}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : openCancelId === booking.id ? (
+                        <div>
+                          <p className="db-rate-label">Request Cancellation</p>
+                          <textarea
+                            className="db-rate-textarea"
+                            value={cancelReason}
+                            onChange={e => setCancelReason(e.target.value)}
+                            placeholder="Let us know why (optional)"
+                            maxLength={300}
+                          />
+                          {cancelError && <p className="db-rate-error">{cancelError}</p>}
+                          <div className="db-rate-actions">
+                            <button
+                              type="button"
+                              className="db-action-danger"
+                              disabled={cancelSubmitting}
+                              onClick={() => submitCancelRequest(booking.id)}
+                            >
+                              {cancelSubmitting ? 'Submitting…' : 'Submit Cancellation Request'}
+                            </button>
+                            <button
+                              type="button"
+                              className="db-btn-ghost"
+                              style={{ fontSize: 11, padding: '10px 22px' }}
+                              onClick={closeCancelForm}
+                            >
+                              Never mind
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="db-change-actions">
+                          <button type="button" className="db-change-link edit" onClick={() => openEditForm(booking)}>
+                            Edit Booking
+                          </button>
+                          <button type="button" className="db-change-link cancel" onClick={() => openCancelForm(booking.id)}>
+                            Cancel Booking
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

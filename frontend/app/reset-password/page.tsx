@@ -1,7 +1,7 @@
 // app/reset-password/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -16,12 +16,11 @@ export default function ResetPasswordPage() {
   const [showConf, setShowConf]   = useState(false);
   const [loading, setLoading]     = useState(false);
   const [done, setDone]           = useState(false);
-  const [error, setError]         = useState('');
-
-  // Validate token exists
-  useEffect(() => {
-    if (!token) setError('Invalid reset link. Please request a new one.');
-  }, [token]);
+  // token is static for the page's lifetime (from the URL), so its validity
+  // can be computed once as the initial state instead of via an effect.
+  const [error, setError]         = useState(() => (
+    token ? '' : 'Invalid reset link. Please request a new one.'
+  ));
 
   // Password strength checker
   const strength = (() => {

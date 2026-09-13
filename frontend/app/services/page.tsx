@@ -14,6 +14,7 @@ interface Service {
   category: string;
   isActive: boolean;
   is_popular?: boolean;
+  image?: string | null;
 }
 
 // ✅ Keys match Prisma ServiceCategory enum EXACTLY
@@ -360,7 +361,7 @@ export default function ServicesPage() {
               <div className="sv-img-wrap">
                 <div className="sv-img-overlay" />
                 <img
-                  src={getImage(service.name, service.category)}
+                  src={service.image || getImage(service.name, service.category)}
                   alt={service.name}
                   className="sv-img"
                   loading="lazy"

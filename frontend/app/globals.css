@@ -3,6 +3,10 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Belt-and-suspenders alongside the <meta name="color-scheme"> tag in
+     app/layout.tsx: keeps form controls and inherited text on the light
+     palette even if a browser ignores the meta tag. */
+  color-scheme: light;
 }
 
 @theme inline {

@@ -2,7 +2,9 @@
 import { PrismaClient } from '@prisma/client';
 
 const prismaClient = new PrismaClient({
-  log: ['query', 'info', 'warn', 'error'],   // Helpful during development
+  // Full query logging is useful in development but floods production logs
+  // (and can leak query parameter values) — keep only errors/warnings there.
+  log: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['query', 'info', 'warn', 'error'],
   errorFormat: 'pretty',
 });
 

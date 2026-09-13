@@ -41,6 +41,10 @@ export default function GalleryPage() {
     })();
   }, []);
 
+  const filteredImages = activeCategory === 'All'
+    ? images
+    : images.filter(i => i.category === activeCategory);
+
   // Close on Escape, navigate with arrow keys
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -52,11 +56,7 @@ export default function GalleryPage() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectedImage, images, activeCategory]);
-
-  const filteredImages = activeCategory === 'All'
-    ? images
-    : images.filter(i => i.category === activeCategory);
+  }, [selectedImage, filteredImages]);
 
   const handleTab = (key: string) => {
     if (key === activeCategory) return;

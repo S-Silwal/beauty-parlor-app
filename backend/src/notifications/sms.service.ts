@@ -2,18 +2,35 @@
 import twilio from 'twilio';
 import { prisma } from '../config/database';
 
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+// Twilio's client constructor validates the Account SID synchronously and
+// THROWS if it's missing/malformed. This module is imported at server
+// startup (appointment.service -> notification.service -> sms.service), so
+// an unconfigured Twilio account used to crash the ENTIRE backend before it
+// could even start listening (the "Failed to fetch" errors on the frontend
+// were the symptom of this — nothing was running on port 5000 at all).
+// Only construct the client when real credentials are present, and no-op
+// SMS sending otherwise.
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
 
-const FROM_NUMBER = process.env.TWILIO_PHONE_NUMBER!;
+let client: ReturnType<typeof twilio> | null = null;
+
+if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER) {
+  client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+} else {
+  console.warn(
+    '⚠️  SMS notifications disabled — set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, ' +
+    'and TWILIO_PHONE_NUMBER in backend/.env to enable them.'
+  );
+}
 
 export type SmsEvent =
   | 'BOOKING_CONFIRMED'
   | 'REMINDER_24H'
   | 'CANCELLED'
-  | 'RESCHEDULED';
+  | 'RESCHEDULED'
+  | 'CHANGE_REQUEST_DECLINED';
 
 interface SmsData {
   customerName: string;
@@ -47,6 +64,9 @@ function buildSmsMessage(event: SmsEvent, data: SmsData): string {
     case 'RESCHEDULED':
       return `Hi ${name}! 📅 Your ${data.serviceName} has been rescheduled to ${data.appointmentDate} at ${data.appointmentTime}. Crown & Glow — (317) 555-0187.`;
 
+    case 'CHANGE_REQUEST_DECLINED':
+      return `Hi ${name}, your requested change to ${data.serviceName} wasn't approved — your booking for ${data.appointmentDate} at ${data.appointmentTime} still stands. Questions? Call (317) 555-0187.`;
+
     default:
       return `Crown & Glow: Your appointment has been updated. Visit crownandglow.com for details.`;
   }
@@ -57,6 +77,11 @@ function buildSmsMessage(event: SmsEvent, data: SmsData): string {
  * Logs result to NotificationLog table
  */
 export async function sendSms({ event, data, userId, appointmentId }: SendSmsOptions) {
+  if (!client) {
+    console.log(`📱 SMS skipped — Twilio is not configured`);
+    return;
+  }
+
   if (!data.phone) {
     console.log(`📱 SMS skipped — no phone number for user ${userId}`);
     return;
@@ -90,7 +115,7 @@ export async function sendSms({ event, data, userId, appointmentId }: SendSmsOpt
   try {
     const result = await client.messages.create({
       body: message,
-      from: FROM_NUMBER,
+      from: TWILIO_PHONE_NUMBER!,
       to: data.phone,
     });
 

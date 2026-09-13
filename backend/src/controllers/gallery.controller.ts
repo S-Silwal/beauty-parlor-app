@@ -15,14 +15,10 @@ export class GalleryController {
     }
   }
 
-  // ── Get signed Cloudinary upload URL (admin only) ────────────────────────
+  // ── Get signed Cloudinary upload URL (admin only — enforced by isAdmin middleware) ────
   // Frontend uses this to upload directly to Cloudinary without going through your server
   static async getSignedUrl(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      if (!req.user || req.user.role !== "ADMIN") {
-        return res.status(403).json({ success: false, message: "Admin access only" });
-      }
-
       const signedData = await GalleryService.generateSignedUploadUrl();
       res.json({ success: true, ...signedData });
     } catch (error) {
@@ -33,10 +29,6 @@ export class GalleryController {
   // ── Save image record after Cloudinary upload (admin only) ───────────────
   static async saveImage(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      if (!req.user || req.user.role !== "ADMIN") {
-        return res.status(403).json({ success: false, message: "Admin access only" });
-      }
-
       const { url, public_id, alt_text, category } = req.body;
 
       if (!url) {
@@ -58,9 +50,6 @@ export class GalleryController {
   // ── Legacy direct upload (admin only) ────────────────────────────────────
   static async uploadImage(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      if (!req.user || req.user.role !== "ADMIN") {
-        return res.status(403).json({ success: false, message: "Admin access only" });
-      }
       if (!req.file) {
         return res.status(400).json({ success: false, message: "No file uploaded" });
       }
@@ -77,10 +66,6 @@ export class GalleryController {
   // ── Soft delete image (admin only) ───────────────────────────────────────
   static async deleteImage(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      if (!req.user || req.user.role !== "ADMIN") {
-        return res.status(403).json({ success: false, message: "Admin access only" });
-      }
-
       const { id } = req.params;
       const result = await GalleryService.deleteImage(id);
       res.json(result);

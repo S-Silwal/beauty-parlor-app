@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import PasswordStrengthChecker, { isPasswordValid } from '../../components/PasswordStrengthChecker';
+import { api } from '@/lib/api';
 
 // ── Phone helpers ─────────────────────────────────────────────────────────────
 
@@ -96,19 +97,12 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      const payload = {
-        name:     formData.name,
-        email:    formData.email,
-        password: formData.password,
-        // Send raw digits, or omit if empty
-        ...(phoneDigits ? { phone: phoneDigits } : {}),
-      };
-
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/auth/register`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+      const data = await api.register(
+        formData.name,
+        formData.email,
+        formData.password,
+        phoneDigits || undefined
       );
-      const data = await res.json();
       if (!data.success) throw new Error(data.message || 'Registration failed');
       setDone(true);
     } catch (err: any) {

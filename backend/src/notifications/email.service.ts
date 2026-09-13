@@ -1,6 +1,8 @@
 // src/notifications/email.service.ts
 import { Resend } from 'resend';
 import { prisma } from '../config/database';
+import { emailConfig } from '../config/email';
+import { generateUnsubscribeToken } from '../utils/unsubscribeToken';
 
 // ✅ FIX 1: Import types from types.ts where they are actually defined
 import {
@@ -14,6 +16,10 @@ import { bookingConfirmedTemplate } from '../templates/booking-confirmed';
 import { reminder24hTemplate }      from '../templates/reminder-24h';
 import { bookingCancelledTemplate } from '../templates/cancelled';
 import { bookingRescheduledTemplate } from '../templates/rescheduled';
+import {
+  changeRequestDeclinedTemplate,
+  ChangeRequestDeclinedEmailData,
+} from '../templates/change-request-declined';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM   = process.env.RESEND_FROM_EMAIL || 'Crown & Glow <hello@crownandglow.com>';
@@ -22,13 +28,15 @@ export type EmailEvent =
   | 'BOOKING_CONFIRMED'
   | 'REMINDER_24H'
   | 'CANCELLED'
-  | 'RESCHEDULED';
+  | 'RESCHEDULED'
+  | 'CHANGE_REQUEST_DECLINED';
 
 // ✅ FIX 3: Use the correct union type for data
 type EmailData =
   | BookingEmailData
   | CancelledEmailData
-  | RescheduledEmailData;
+  | RescheduledEmailData
+  | ChangeRequestDeclinedEmailData;
 
 interface SendEmailOptions {
   event:         EmailEvent;
@@ -41,18 +49,21 @@ export async function sendEmail({
   event,
   data,
   userId,
- 
+  appointmentId,
 }: SendEmailOptions) {
 
-  // ✅ FIX 4: Don't select email_notifications — it doesn't exist in schema yet
-  // Just verify user exists
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true },
+    select: { id: true, email: true, email_notifications: true },
   });
 
   if (!user) {
     console.log(`📧 Email skipped — user ${userId} not found`);
+    return;
+  }
+
+  if (!user.email_notifications) {
+    console.log(`📧 Email skipped — user ${userId} has opted out`);
     return;
   }
 
@@ -72,15 +83,20 @@ export async function sendEmail({
     case 'RESCHEDULED':
       template = bookingRescheduledTemplate(data as RescheduledEmailData);
       break;
+    case 'CHANGE_REQUEST_DECLINED':
+      template = changeRequestDeclinedTemplate(data as ChangeRequestDeclinedEmailData);
+      break;
     default:
       throw new Error(`Unknown email event: ${event}`);
   }
 
-  // ✅ FIX 5: prisma.notificationLog doesn't exist yet — skip DB logging
-  // until you run the migration to add the NotificationLog model
-  // Once migration is done, uncomment the block below
+  // Fill in the per-user, signed unsubscribe link (never a raw email —
+  // see routes/notification.routes.ts for why).
+  const unsubscribeUrl = `${emailConfig.backendUrl}/api/notifications/unsubscribe?token=${generateUnsubscribeToken(user.id)}`;
+  template.html = template.html.replace(/\{\{unsubscribeUrl\}\}/g, unsubscribeUrl);
 
-  /*
+  const recipient = (data as BookingEmailData).customerEmail;
+
   const log = await prisma.notificationLog.create({
     data: {
       user_id:        userId,
@@ -88,42 +104,39 @@ export async function sendEmail({
       type:           'EMAIL',
       event,
       status:         'PENDING',
-      recipient:      (data as BookingEmailData).customerEmail,
+      recipient,
     },
   });
-  */
 
   try {
     const result = await resend.emails.send({
       from:    FROM,
-      to:      (data as BookingEmailData).customerEmail,
+      to:      recipient,
       subject: template.subject,
       html:    template.html,
     });
 
-    console.log(`✅ Email sent [${event}] to ${(data as BookingEmailData).customerEmail} — ID: ${result.data?.id}`);
+    // The Resend SDK resolves instead of rejecting on API-level failures —
+    // the failure comes back as `result.error`, not a thrown exception.
+    if (result.error) {
+      throw new Error(result.error.message);
+    }
 
-    /*
-    // Uncomment after migration:
     await prisma.notificationLog.update({
       where: { id: log.id },
-      data:  { status: 'SENT', sent_at: new Date() },
+      data:  { status: 'SENT', sent_at: new Date(), external_id: result.data?.id },
     });
-    */
 
+    console.log(`✅ Email sent [${event}] to ${recipient} — ID: ${result.data?.id}`);
     return result;
 
   } catch (error: any) {
-    console.error(`❌ Email failed [${event}] to ${(data as BookingEmailData).customerEmail}:`, error.message);
-
-    /*
-    // Uncomment after migration:
     await prisma.notificationLog.update({
       where: { id: log.id },
       data:  { status: 'FAILED', error_message: error.message },
     });
-    */
 
+    console.error(`❌ Email failed [${event}] to ${recipient}:`, error.message);
     throw error;
   }
 }

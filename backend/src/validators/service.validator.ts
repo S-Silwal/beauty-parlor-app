@@ -33,6 +33,12 @@ export const createServiceSchema = z.object({
     .positive("Price must be greater than 0")
     .max(10000, "Price seems too high"),
 
+  // Cloudinary URL saved after the admin uploads a photo for this service
+  image: z
+    .string()
+    .url("Invalid image URL")
+    .optional(),
+
   is_popular: z.boolean().default(false),
   isActive: z.boolean().default(true),
 });

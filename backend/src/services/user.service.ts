@@ -2,6 +2,9 @@
 import { prisma } from "../config/database";
 import bcrypt from "bcryptjs";
 import { UpdateProfileInput, ChangePasswordInput } from "../validators/user.validator";
+import { AuthService } from "./auth.service";
+import { authConfig } from "../config/auth";
+import { AppError } from "../utils/AppError";
 
 export class UserService {
 
@@ -19,27 +22,47 @@ export class UserService {
       },
     });
 
-    if (!user) throw new Error("User not found");
+    if (!user) throw new AppError("User not found", 404);
     return user;
   }
 
   static async updateProfile(userId: string, data: UpdateProfileInput) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new Error("User not found");
+    if (!user) throw new AppError("User not found", 404);
 
-    return await prisma.user.update({
+    const updateData: { name?: string; email?: string; is_verified?: boolean } = {
+      name: data.name,
+    };
+
+    // Changing the email means the new address hasn't been proven to belong
+    // to this user — check it isn't already someone else's, then require
+    // re-verification the same way a fresh registration would.
+    const emailChanged = data.email !== undefined && data.email !== user.email;
+    if (emailChanged) {
+      const existing = await prisma.user.findUnique({ where: { email: data.email } });
+      if (existing) throw new AppError("This email is already in use by another account", 409);
+
+      updateData.email = data.email;
+      updateData.is_verified = false;
+    }
+
+    const updated = await prisma.user.update({
       where: { id: userId },
-      data: {
-        name: data.name,
-        email: data.email,
-      },
+      data: updateData,
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        is_verified: true,
       },
     });
+
+    if (emailChanged) {
+      await AuthService.sendVerificationEmail(updated.id, updated.email, updated.name);
+    }
+
+    return updated;
   }
 
   static async changePassword(userId: string, data: ChangePasswordInput) {
@@ -48,18 +71,21 @@ export class UserService {
       select: { password_hash: true },
     });
 
-    if (!user) throw new Error("User not found");
+    if (!user) throw new AppError("User not found", 404);
 
     const isMatch = await bcrypt.compare(data.currentPassword, user.password_hash);
-    if (!isMatch) throw new Error("Current password is incorrect");
+    if (!isMatch) throw new AppError("Current password is incorrect", 401);
 
-    const salt = await bcrypt.genSalt(10);
-    const newPasswordHash = await bcrypt.hash(data.newPassword, salt);
+    const newPasswordHash = await bcrypt.hash(data.newPassword, authConfig.bcryptRounds);
 
     await prisma.user.update({
       where: { id: userId },
       data: { password_hash: newPasswordHash },
     });
+
+    // Revoke existing sessions — a stolen refresh token shouldn't survive a
+    // password change (mirrors AuthService.resetPassword).
+    await prisma.refreshToken.deleteMany({ where: { user_id: userId } });
 
     return { message: "Password changed successfully" };
   }

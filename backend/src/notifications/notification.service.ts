@@ -163,9 +163,57 @@ export async function notifyBookingRescheduled(
 }
 
 /**
- * Send 24h reminder — called by QStash webhook
+ * Send "your change request was declined" notification — the original
+ * booking is untouched, so this deliberately uses the CURRENT appointment
+ * date/time (not any of the customer's requested values).
  */
-export async function notifyReminder24h(appointmentId: string) {
+export async function notifyChangeRequestDeclined(
+  appointmentId: string,
+  requestType: 'EDIT' | 'CANCEL',
+  reason?: string,
+) {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: { user: true, service: true },
+  });
+
+  if (!appointment) return;
+
+  const emailData = {
+    customerName: appointment.user.name,
+    customerEmail: appointment.user.email,
+    serviceName: appointment.service.name,
+    appointmentDate: formatDate(appointment.appointment_date),
+    appointmentTime: formatTime(appointment.appointment_date),
+    requestType,
+    reason,
+    bookingId: appointment.id,
+  };
+
+  const smsData = {
+    customerName: appointment.user.name,
+    serviceName: appointment.service.name,
+    appointmentDate: formatDate(appointment.appointment_date),
+    appointmentTime: formatTime(appointment.appointment_date),
+    phone: appointment.user.phone ?? '',
+  };
+
+  Promise.allSettled([
+    sendEmail({ event: 'CHANGE_REQUEST_DECLINED', data: emailData, userId: appointment.user_id, appointmentId }),
+    sendSms({ event: 'CHANGE_REQUEST_DECLINED', data: smsData, userId: appointment.user_id, appointmentId }),
+  ]);
+}
+
+/**
+ * Send 24h reminder — called by QStash webhook
+ *
+ * `scheduledForDate` is the appointment date this specific reminder was
+ * scheduled against (see scheduler.service.ts). If the appointment has since
+ * been rescheduled to a different time, a fresh reminder was already
+ * scheduled for the new time — this one is stale and must be skipped, or
+ * the customer gets a reminder mistimed against the old slot.
+ */
+export async function notifyReminder24h(appointmentId: string, scheduledForDate?: string) {
   const appointment = await prisma.appointment.findUnique({
     where: { id: appointmentId },
     include: { user: true, service: true, staff: true },
@@ -176,6 +224,11 @@ export async function notifyReminder24h(appointmentId: string) {
   // Don't send reminder for cancelled appointments
   if (appointment.status === 'CANCELLED') {
     console.log(`⏭️  Skipping reminder — appointment ${appointmentId} is cancelled`);
+    return;
+  }
+
+  if (scheduledForDate && new Date(scheduledForDate).getTime() !== appointment.appointment_date.getTime()) {
+    console.log(`⏭️  Skipping stale reminder for ${appointmentId} — appointment was rescheduled`);
     return;
   }
 

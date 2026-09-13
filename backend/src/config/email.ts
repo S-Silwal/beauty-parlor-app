@@ -5,8 +5,11 @@ dotenv.config();
 export const emailConfig = {
   // Resend
   resendApiKey:  process.env.RESEND_API_KEY!,//authenticates your backend with resend's servers
-  fromEmail:     process.env.RESEND_FROM_EMAIL || 
+  fromEmail:     process.env.RESEND_FROM_EMAIL ||
                  "Crown & Glow <hello@crownandglow.com>",
+
+  // Backend base URL — used to build links (e.g. unsubscribe) that hit our own API
+  backendUrl: process.env.BACKEND_URL || "http://localhost:5000",
 
   // Subject lines — all in one place
   subjects: {

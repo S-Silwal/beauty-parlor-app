@@ -63,10 +63,17 @@ export const getAvailableSlotsSchema = z.object({
     .string()
     .date("Date must be in YYYY-MM-DD format")
     .refine((dateStr) => {
-      const inputDate = new Date(dateStr);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Start of today
-      return inputDate >= today;
+      // Plain string comparison against today's LOCAL calendar date —
+      // never round-trip through `new Date(dateStr)`. A bare "YYYY-MM-DD"
+      // is parsed as UTC midnight, which in any negative-UTC-offset
+      // timezone (all of the Americas) sits a few hours *before* local
+      // midnight — so comparing it against a locally-zeroed `new Date()`
+      // made today's own date register as "in the past" and blocked every
+      // same-day booking. ISO date strings sort correctly as strings, so
+      // no Date object (and no timezone) needs to enter the comparison.
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      return dateStr >= todayStr;
     }, {
       message: "Date cannot be in the past",
     }),

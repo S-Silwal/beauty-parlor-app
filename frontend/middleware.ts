@@ -7,7 +7,7 @@ import type { NextRequest } from 'next/server';
 
 const ADMIN_ROUTES     = ['/admin'];
 const CUSTOMER_ROUTES  = ['/dashboard'];
-const PROTECTED_ROUTES = ['/booking'];
+const PROTECTED_ROUTES = ['/booking', '/my-bookings'];
 const AUTH_ROUTES      = ['/login', '/register'];
 
 function decodeJwt(token: string): { role?: string; exp?: number } | null {

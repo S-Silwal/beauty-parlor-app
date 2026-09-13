@@ -1,26 +1,23 @@
 // src/controllers/service.controller.ts
-import { Request, Response } from "express";
-import { ServiceService } from "../services/service.service"; // You'll create this next
+import { Request, Response, NextFunction } from "express";
+import { ServiceService } from "../services/service.service";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { createServiceSchema, updateServiceSchema } from "../validators/service.validator";
 
 export class ServiceController {
 
-  static async getAllServices(req: Request, res: Response) {
+  static async getAllServices(req: Request, res: Response, next: NextFunction) {
     try {
       const services = await ServiceService.getAll();
       res.json({ success: true, services });
-    } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+    } catch (error) {
+      next(error);
     }
   }
 
-  static async createService(req: AuthRequest, res: Response) {
+  // Role is already enforced by isAdmin middleware on this route.
+  static async createService(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      if (!req.user || req.user.role !== "ADMIN") {
-        return res.status(403).json({ success: false, message: "Admin access only" });
-      }
-
       const validatedData = createServiceSchema.parse(req.body);
       const service = await ServiceService.create(validatedData);
 
@@ -29,20 +26,13 @@ export class ServiceController {
         message: "Service created successfully",
         service,
       });
-    } catch (error: any) {
-      if (error.name === "ZodError") {
-        return res.status(400).json({ success: false, message: "Validation failed", errors: error.errors });
-      }
-      res.status(400).json({ success: false, message: error.message });
+    } catch (error) {
+      next(error);
     }
   }
 
-  static async updateService(req: AuthRequest, res: Response) {
+  static async updateService(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      if (!req.user || req.user.role !== "ADMIN") {
-        return res.status(403).json({ success: false, message: "Admin access only" });
-      }
-
       const { id } = req.params;
       const validatedData = updateServiceSchema.parse(req.body);
 
@@ -53,26 +43,30 @@ export class ServiceController {
         message: "Service updated successfully",
         service,
       });
-    } catch (error: any) {
-      if (error.name === "ZodError") {
-        return res.status(400).json({ success: false, message: "Validation failed", errors: error.errors });
-      }
-      res.status(400).json({ success: false, message: error.message });
+    } catch (error) {
+      next(error);
     }
   }
 
-  static async deleteService(req: AuthRequest, res: Response) {
+  static async deleteService(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      if (!req.user || req.user.role !== "ADMIN") {
-        return res.status(403).json({ success: false, message: "Admin access only" });
-      }
-
       const { id } = req.params;
       await ServiceService.delete(id);
 
       res.json({ success: true, message: "Service deleted successfully" });
-    } catch (error: any) {
-      res.status(400).json({ success: false, message: error.message });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ── Get signed Cloudinary upload URL (admin only — enforced by isAdmin middleware) ────
+  // Frontend uses this to upload a service photo directly to Cloudinary
+  static async getSignedUrl(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const signedData = await ServiceService.generateSignedUploadUrl();
+      res.json({ success: true, ...signedData });
+    } catch (error) {
+      next(error);
     }
   }
 }

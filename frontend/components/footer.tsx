@@ -1,7 +1,67 @@
 // src/components/footer.tsx
+'use client';
+
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+
+// The shop is physically in Indianapolis — "open now" has to be evaluated
+// against ITS local clock, not the visitor's (or the server's) timezone,
+// or someone browsing from another timezone would see the wrong status.
+const STORE_TIMEZONE = 'America/Indiana/Indianapolis';
+
+// Mirrors the hours actually printed in the Opening Hours column below —
+// if those ever change, update them here too. `display` feeds the
+// "Today · Sat 9:00 AM – 7:00 PM" line above the status badge.
+const HOURS: Record<string, { open: number; close: number; display: string }> = {
+  Mon: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
+  Tue: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
+  Wed: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
+  Thu: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
+  Fri: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
+  Sat: { open: 9 * 60,  close: 19 * 60, display: '9:00 AM – 7:00 PM' },
+  Sun: { open: 10 * 60, close: 17 * 60, display: '10:00 AM – 5:00 PM' },
+};
+
+interface StoreStatus {
+  weekday: string;   // "Mon" … "Sun", in STORE_TIMEZONE
+  hoursLabel: string;
+  isOpen: boolean;
+}
+
+function getStoreStatus(): StoreStatus {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: STORE_TIMEZONE,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? '';
+  const weekday = get('weekday');
+  const today = HOURS[weekday];
+  const minutesNow = Number(get('hour')) * 60 + Number(get('minute'));
+
+  return {
+    weekday,
+    hoursLabel: today?.display ?? '',
+    isOpen: !!today && minutesNow >= today.open && minutesNow < today.close,
+  };
+}
 
 export default function Footer() {
+  // Computed directly (not in an effect) so the very first render — server
+  // or client — already shows the correct status instead of a placeholder.
+  const [status, setStatus] = useState(getStoreStatus);
+
+  // Re-check periodically so the badge flips from Open to Closed (or back)
+  // on its own if someone leaves the page open across a boundary, with no
+  // refresh needed.
+  useEffect(() => {
+    const id = setInterval(() => setStatus(getStoreStatus()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <>
       <style>{`
@@ -40,12 +100,6 @@ export default function Footer() {
         }
         .ft-logo em { font-style: italic; color: var(--gold-lt); }
         .ft-logo:hover { color: var(--gold-lt); }
-
-        .ft-tagline {
-          font-size: 14px; font-weight: 300;
-          color: var(--soft); line-height: 1.8;
-          max-width: 220px; margin: 0 0 28px;
-        }
 
         /* Social icons */
         .ft-social { display: flex; gap: 10px; }
@@ -96,11 +150,14 @@ export default function Footer() {
         .ft-contact-icon {
           color: var(--gold); flex-shrink: 0; margin-top: 1px;
         }
-        .ft-contact-text {
+        /* Contact info, as clickable links (tel: / mailto: / Maps) */
+        .ft-contact-link {
           font-size: 13px; font-weight: 300;
           color: var(--soft); line-height: 1.65;
+          text-decoration: none; transition: color .2s;
         }
-        .ft-contact-text strong {
+        .ft-contact-link:hover { color: var(--gold-lt); text-decoration: underline; }
+        .ft-contact-link strong {
           color: var(--cream); font-weight: 500;
         }
 
@@ -117,6 +174,21 @@ export default function Footer() {
         .ft-hour-time {
           font-size: 13px; font-weight: 300; color: var(--soft);
         }
+        .ft-today {
+          font-size: 12px; font-weight: 500;
+          color: var(--soft); margin: 4px 0 0;
+        }
+        .ft-today strong {
+          color: var(--cream); font-weight: 600;
+        }
+        .ft-status-badge {
+          display: inline-block; margin-top: 8px;
+          font-size: 11px; font-weight: 700;
+          letter-spacing: .08em; text-transform: uppercase;
+          padding: 5px 12px; border-radius: 999px;
+        }
+        .ft-status-badge.open   { color: #6EE7B7; background: rgba(16,185,129,0.16); }
+        .ft-status-badge.closed { color: #FCA5A5; background: rgba(239,68,68,0.14); }
 
         /* Divider */
         .ft-divider {
@@ -169,11 +241,7 @@ export default function Footer() {
             <Link href="/" className="ft-logo">
               Crown <em>&amp; Glow</em>
             </Link>
-            <p className="ft-tagline">
-              Premium beauty rituals crafted with precision,
-              care, and artistry — for every version of you.
-            </p>
-            <div className="ft-social">
+            <div className="ft-social" style={{ marginTop: 16 }}>
               {/* Instagram */}
               <a href="#" className="ft-social-btn" aria-label="Instagram">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -188,18 +256,6 @@ export default function Footer() {
                   <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
                 </svg>
               </a>
-              {/* Pinterest */}
-              <a href="#" className="ft-social-btn" aria-label="Pinterest">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <path d="M12 2C6.477 2 2 6.477 2 12c0 4.236 2.636 7.855 6.356 9.312-.088-.791-.167-2.005.035-2.868.181-.78 1.172-4.97 1.172-4.97s-.299-.598-.299-1.482c0-1.388.806-2.428 1.808-2.428.853 0 1.267.641 1.267 1.408 0 .858-.546 2.141-.828 3.33-.236.995.498 1.806 1.476 1.806 1.771 0 3.133-1.867 3.133-4.562 0-2.386-1.716-4.054-4.165-4.054-2.837 0-4.5 2.127-4.5 4.326 0 .856.33 1.775.741 2.276a.3.3 0 0 1 .069.286c-.076.311-.244.995-.277 1.134-.044.183-.146.222-.337.134-1.249-.581-2.03-2.407-2.03-3.874 0-3.154 2.292-6.052 6.608-6.052 3.469 0 6.165 2.473 6.165 5.776 0 3.447-2.173 6.22-5.19 6.22-1.013 0-1.967-.527-2.292-1.148l-.623 2.378c-.226.869-.835 1.958-1.244 2.621.937.29 1.931.446 2.962.446 5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
-                </svg>
-              </a>
-              {/* TikTok */}
-              <a href="#" className="ft-social-btn" aria-label="TikTok">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                  <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.78a4.85 4.85 0 0 1-1.01-.09z"/>
-                </svg>
-              </a>
             </div>
           </div>
 
@@ -212,7 +268,6 @@ export default function Footer() {
               <Link href="/booking"  className="ft-link">Book Appointment</Link>
               <Link href="/gallery"  className="ft-link">Gallery</Link>
               <Link href="/about"    className="ft-link">About Us</Link>
-              <Link href="/contact"  className="ft-link">Contact</Link>
             </nav>
           </div>
 
@@ -220,6 +275,7 @@ export default function Footer() {
           <div>
             <p className="ft-col-head">Contact Us</p>
             <div className="ft-contact">
+              {/* Dummy address for now — opens the address in Google Maps. */}
               <div className="ft-contact-item">
                 <span className="ft-contact-icon">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -227,21 +283,28 @@ export default function Footer() {
                     <circle cx="12" cy="10" r="3"/>
                   </svg>
                 </span>
-                <span className="ft-contact-text">
-                  456 Glow Avenue, Suite 200<br />
-                  Indianapolis, Indiana 46204
-                </span>
+                <a
+                  href="https://www.google.com/maps/search/?api=1&query=123+Placeholder+Lane+Anytown+ST+00000"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ft-contact-link"
+                >
+                  123 Placeholder Lane, Suite 100<br />
+                  Anytown, ST 00000
+                </a>
               </div>
+              {/* Dummy phone number for now. */}
               <div className="ft-contact-item">
                 <span className="ft-contact-icon">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.6 3.4 2 2 0 0 1 3.59 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.78a16 16 0 0 0 6.29 6.29l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
                   </svg>
                 </span>
-                <span className="ft-contact-text">
-                  <strong>(317) 555-0187</strong>
-                </span>
+                <a href="tel:+15551234567" className="ft-contact-link">
+                  <strong>(555) 123-4567</strong>
+                </a>
               </div>
+              {/* Dummy email for now. */}
               <div className="ft-contact-item">
                 <span className="ft-contact-icon">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -249,9 +312,9 @@ export default function Footer() {
                     <polyline points="22,6 12,13 2,6"/>
                   </svg>
                 </span>
-                <span className="ft-contact-text">
-                  <strong>hello@crownandglow.com</strong>
-                </span>
+                <a href="mailto:hello@example.com" className="ft-contact-link">
+                  <strong>hello@example.com</strong>
+                </a>
               </div>
             </div>
           </div>
@@ -272,16 +335,12 @@ export default function Footer() {
                 <span className="ft-hour-day">Sunday</span>
                 <span className="ft-hour-time">10:00 AM – 5:00 PM</span>
               </div>
-              <div style={{ marginTop: 8 }}>
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  fontSize: 11, fontWeight: 600, letterSpacing: '.06em',
-                  textTransform: 'uppercase',
-                  color: '#2C2825', background: '#B89A6A',
-                  padding: '5px 12px', borderRadius: 2,
-                }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2C2825', display: 'inline-block' }} />
-                  Now Open
+              <div suppressHydrationWarning>
+                <p className="ft-today">
+                  Today · <strong>{status.weekday}</strong> {status.hoursLabel}
+                </p>
+                <span className={`ft-status-badge ${status.isOpen ? 'open' : 'closed'}`}>
+                  {status.isOpen ? 'Open' : 'Closed'}
                 </span>
               </div>
             </div>

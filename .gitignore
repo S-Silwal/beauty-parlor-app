@@ -54,7 +54,6 @@ Thumbs.db
 
 # Backend specific
 backend/dist/
-backend/prisma/migrations/
 backend/prisma/*.db
 backend/uploads/
 backend/logs/
@@ -72,3 +71,6 @@ docker-compose.override.yml
 *.db
 .nyc_output
 .tmp
+
+# Local scratch (contains real secrets, never commit)
+Claude outputs/

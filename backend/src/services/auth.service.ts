@@ -7,6 +7,7 @@ import { Resend } from "resend";
 import { RegisterInput } from "../validators";
 import { authConfig } from "../config/auth";
 import { emailConfig } from "../config/email";
+import { AppError } from "../utils/AppError";
 
 const resend = new Resend(emailConfig.resendApiKey);
 
@@ -105,13 +106,13 @@ export class AuthService {
     const existingEmail = await prisma.user.findUnique({
       where: { email: data.email.toLowerCase() },
     });
-    if (existingEmail) throw new Error("User with this email already exists");
+    if (existingEmail) throw new AppError("User with this email already exists", 409);
 
     if (data.phone) {
       const existingPhone = await prisma.user.findUnique({
         where: { phone: data.phone },
       });
-      if (existingPhone) throw new Error("This phone number is already registered to another account");
+      if (existingPhone) throw new AppError("This phone number is already registered to another account", 409);
     }
 
     // ✅ FIX 1 — was: bcrypt.hash(newPassword, ...) — newPassword doesn't exist here
@@ -146,8 +147,8 @@ export class AuthService {
     const token     = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + authConfig.verificationTokenExpiryMs);
 
-    await prisma.passwordResetToken.deleteMany({ where: { user_id: userId } });
-    await prisma.passwordResetToken.create({
+    await prisma.emailVerificationToken.deleteMany({ where: { user_id: userId } });
+    await prisma.emailVerificationToken.create({
       data: { user_id: userId, token, expires_at: expiresAt },
     });
 
@@ -157,26 +158,30 @@ export class AuthService {
     await sendAuthEmail(email, emailConfig.subjects.verification, html);
 
     console.log(`📧 Verification email sent to ${email}`);
-    console.log(`🔗 Verify URL (dev): ${verifyUrl}`);
+    // The URL contains a live, usable verification token — never log it
+    // outside development, where the real email may not be reachable.
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`🔗 Verify URL (dev): ${verifyUrl}`);
+    }
   }
 
   static async verifyEmail(token: string) {
-    const record = await prisma.passwordResetToken.findUnique({
+    const record = await prisma.emailVerificationToken.findUnique({
       where:   { token },
       include: { user: true },
     });
 
-    if (!record)                  throw new Error("Invalid verification link");
-    if (record.expires_at < new Date()) throw new Error("Verification link has expired. Please request a new one.");
-    if (record.used)              throw new Error("This verification link has already been used.");
-    if (record.user.is_verified)  throw new Error("Email is already verified.");
+    if (!record)                  throw new AppError("Invalid verification link", 400);
+    if (record.expires_at < new Date()) throw new AppError("Verification link has expired. Please request a new one.", 400);
+    if (record.used)              throw new AppError("This verification link has already been used.", 409);
+    if (record.user.is_verified)  throw new AppError("Email is already verified.", 409);
 
     await prisma.user.update({
       where: { id: record.user_id },
       data:  { is_verified: true },
     });
 
-    await prisma.passwordResetToken.update({
+    await prisma.emailVerificationToken.update({
       where: { token },
       data:  { used: true },
     });
@@ -186,12 +191,15 @@ export class AuthService {
   }
 
   static async resendVerificationEmail(email: string) {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user)            throw new Error("No account found with this email");
-    if (user.is_verified) throw new Error("This email is already verified");
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
-    await AuthService.sendVerificationEmail(user.id, user.email, user.name);
-    return { message: "Verification email sent" };
+    // Don't reveal whether this email is registered or already verified —
+    // mirrors forgotPassword()'s anti-enumeration behavior.
+    if (user && !user.is_verified) {
+      await AuthService.sendVerificationEmail(user.id, user.email, user.name);
+    }
+
+    return { message: "If an account with this email needs verification, a new link has been sent." };
   }
 
   // ====================== LOGIN ======================
@@ -211,10 +219,10 @@ export class AuthService {
       },
     });
 
-    if (!user) throw new Error("Invalid email or password");
+    if (!user) throw new AppError("Invalid email or password", 401);
 
     if (user.accountLockedUntil && user.accountLockedUntil > new Date()) {
-      throw new Error(`Account is locked until ${user.accountLockedUntil.toLocaleString()}`);
+      throw new AppError(`Account is locked until ${user.accountLockedUntil.toLocaleString()}`, 403);
     }
 
     const isPasswordCorrect = await bcrypt.compare(password, user.password_hash);
@@ -230,14 +238,14 @@ export class AuthService {
           where: { id: user.id },
           data:  { accountLockedUntil: new Date(Date.now() + authConfig.lockDurationMs) },
         });
-        throw new Error("Too many failed attempts. Account locked for 30 minutes.");
+        throw new AppError("Too many failed attempts. Account locked for 30 minutes.", 403);
       }
 
-      throw new Error("Invalid email or password");
+      throw new AppError("Invalid email or password", 401);
     }
 
     if (!user.is_verified) {
-      throw new Error("Please verify your email before logging in. Check your inbox for the verification link.");
+      throw new AppError("Please verify your email before logging in. Check your inbox for the verification link.", 403);
     }
 
     await prisma.user.update({
@@ -297,7 +305,7 @@ export class AuthService {
     });
 
     if (!storedToken || storedToken.expires_at < new Date()) {
-      throw new Error("Invalid or expired refresh token");
+      throw new AppError("Invalid or expired refresh token", 401);
     }
 
     await prisma.refreshToken.delete({ where: { token: oldRefreshToken } });
@@ -352,7 +360,11 @@ export class AuthService {
       },
     });
 
-    console.log(`🔐 OTP for ${userId}: ${code}`);
+    // The OTP itself is a live login credential — never log it outside
+    // development.
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`🔐 OTP for ${userId}: ${code}`);
+    }
     return { message: "OTP sent successfully" };
   }
 
@@ -366,7 +378,7 @@ export class AuthService {
       },
     });
 
-    if (!otp) throw new Error("Invalid or expired OTP");
+    if (!otp) throw new AppError("Invalid or expired OTP", 400);
 
     await prisma.otpCode.update({
       where: { id: otp.id },
@@ -374,7 +386,7 @@ export class AuthService {
     });
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new Error("User not found");
+    if (!user) throw new AppError("User not found", 404);
 
     return this.generateTokens(user);
   }
@@ -421,7 +433,11 @@ export class AuthService {
     // ✅ FIX 4 — was: hardcoded subject string
     await sendAuthEmail(user.email, emailConfig.subjects.resetPassword, html);
 
-    console.log(`🔗 Reset URL (dev): ${resetUrl}`);
+    // The URL contains a live, usable password-reset token — never log it
+    // outside development.
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`🔗 Reset URL (dev): ${resetUrl}`);
+    }
     return { message: "If an account exists, a reset link has been sent" };
   }
 
@@ -431,9 +447,9 @@ export class AuthService {
       include: { user: true },
     });
 
-    if (!record)                  throw new Error("Invalid or expired reset link");
-    if (record.expires_at < new Date()) throw new Error("Reset link has expired. Please request a new one.");
-    if (record.used)              throw new Error("This reset link has already been used.");
+    if (!record)                  throw new AppError("Invalid or expired reset link", 400);
+    if (record.expires_at < new Date()) throw new AppError("Reset link has expired. Please request a new one.", 400);
+    if (record.used)              throw new AppError("This reset link has already been used.", 409);
 
     // ✅ FIX 5 — was: bcrypt.hash(newPassword, 10) — magic number 10 left behind
     const password_hash = await bcrypt.hash(newPassword, authConfig.bcryptRounds);

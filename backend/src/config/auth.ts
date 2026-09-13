@@ -22,6 +22,9 @@ export const authConfig = {
   resetTokenExpiryMs:        60 * 60 * 1000,
   otpExpiryMs:               10 * 60 * 1000,
 
+  // Long-lived — embedded in outgoing email footers as a one-click unsubscribe link
+  unsubscribeTokenExpiry: "365d" as const,
+
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",//used in email links for verification and password reset, should match the actual frontend URL in production
 } as const;
 

@@ -2,7 +2,9 @@
 // Barrel file - Makes importing clean
 
 export { initSocket, getIO } from "./socket.server";
-export { 
-  emitBookingCreated, 
-  emitBookingUpdated 
+export {
+  emitBookingCreated,
+  emitBookingUpdated,
+  emitChangeRequestCreated,
+  emitChangeRequestResolved,
 } from "./handlers/booking.handler";

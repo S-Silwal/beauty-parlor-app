@@ -135,12 +135,9 @@ export class AppointmentController {
   }
 
   // ====================== ADMIN / STAFF ROUTES ======================
+  // Role is already enforced by isStaffOrAdmin middleware on these routes.
   static async getAllAppointments(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      if (!req.user || !["ADMIN", "STAFF"].includes(req.user.role)) {
-        return res.status(403).json({ success: false, message: "Access denied. Admin or Staff only." });
-      }
-
       const appointments = await AppointmentService.getAllAppointments();
       res.json({ success: true, appointments });
     } catch (error) {
@@ -150,14 +147,17 @@ export class AppointmentController {
 
   static async updateStatus(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      if (!req.user || !["ADMIN", "STAFF"].includes(req.user.role)) {
-        return res.status(403).json({ success: false, message: "Access denied. Admin or Staff only." });
-      }
-
       const { id } = req.params;
       const validated = updateStatusSchema.parse(req.body);
 
-      const appointment = await AppointmentService.updateAppointmentStatus(id, validated.status);
+      // Marking a booking COMPLETED is also what records the payment: it
+      // must flip payment_status to PAID and create the Transaction row,
+      // or the amount would never satisfy the Revenue section's
+      // "COMPLETED + PAID" definition of earned revenue. Every other
+      // status transition goes through the plain status update.
+      const appointment = validated.status === "COMPLETED"
+        ? await AppointmentService.completeAppointmentWithPayment(id)
+        : await AppointmentService.updateAppointmentStatus(id, validated.status);
 
       res.json({
         success: true,

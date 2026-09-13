@@ -1,13 +1,23 @@
 // app/booking/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
+// `new Date().toISOString()` reports the UTC calendar date, which runs
+// ahead of local date in the evening in any negative-UTC-offset timezone
+// (e.g. after ~8pm Eastern) — using it as the date input's `min` would
+// block picking "today" once UTC has already rolled over to tomorrow.
+// Build the min from local calendar components instead.
+function localTodayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function BookingPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [services, setServices]               = useState<any[]>([]);
@@ -22,12 +32,14 @@ export default function BookingPage() {
   const [bookingLoading, setBookingLoading]   = useState(false);
   const [error, setError]                     = useState('');
   const [successMsg, setSuccessMsg]           = useState('');
-  const [isClient, setIsClient]               = useState(false);
 
+  // Wait for AuthContext's async auth check before deciding to redirect —
+  // otherwise a genuinely logged-in user gets bounced to /login on refresh
+  // because `user` starts as null.
   useEffect(() => {
-    setIsClient(true);
+    if (authLoading) return;
     if (!user) router.push('/login');
-  }, [user, router]);
+  }, [user, authLoading, router]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -45,11 +57,7 @@ export default function BookingPage() {
     loadData();
   }, []);
 
-  useEffect(() => {
-    if (selectedDate) loadAvailableSlots();
-  }, [selectedDate, selectedStaff]);
-
-  const loadAvailableSlots = async () => {
+  const loadAvailableSlots = useCallback(async () => {
     setLoading(true);
     setError('');
     setSelectedSlot('');
@@ -65,11 +73,25 @@ export default function BookingPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedDate, selectedStaff]);
+
+  useEffect(() => {
+    if (!selectedDate) return;
+    (async () => {
+      await loadAvailableSlots();
+    })();
+  }, [selectedDate, selectedStaff, loadAvailableSlots]);
 
   const handleBookAppointment = async () => {
     if (!selectedService || !selectedDate || !selectedSlot) {
       setError('Please select service, date and time slot');
+      return;
+    }
+
+    const token = api.getToken();
+    if (!token) {
+      setError('Your session has expired. Please log in again.');
+      router.push('/login');
       return;
     }
 
@@ -87,7 +109,7 @@ export default function BookingPage() {
         notes:            notes?.trim() || undefined,
       };
 
-      const res = await api.bookAppointment(appointmentData, api.getToken()!);
+      const res = await api.bookAppointment(appointmentData, token);
 
       if (res.success) {
         setSuccessMsg(
@@ -109,7 +131,7 @@ export default function BookingPage() {
   // new Date('2026-05-19') is treated as UTC midnight → shows May 18 in US timezones
   // Parsing as (year, month-1, day) uses LOCAL time → always shows correct date
   const formatDate = (dateStr: string) => {
-    if (!dateStr || !isClient) return '';
+    if (!dateStr) return '';
     const [year, month, day] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day).toLocaleDateString('en-US', {
       weekday: 'long',
@@ -120,12 +142,14 @@ export default function BookingPage() {
   };
 
   const formatTime = (slot: string) => {
-    if (!slot || !isClient) return '';
+    if (!slot) return '';
     const [hour, minute] = slot.split(':').map(Number);
     const ampm        = hour >= 12 ? 'PM' : 'AM';
     const displayHour = hour % 12 || 12;
     return `${displayHour}:${minute.toString().padStart(2, '0')} ${ampm}`;
   };
+
+  if (authLoading || !user) return null;
 
   return (
     <div className="max-w-5xl mx-auto p-6 pt-10">
@@ -202,7 +226,7 @@ export default function BookingPage() {
               type="date"
               value={selectedDate}
               onChange={e => setSelectedDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]}
+              min={localTodayStr()}
               className="w-full p-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500"
             />
           </div>

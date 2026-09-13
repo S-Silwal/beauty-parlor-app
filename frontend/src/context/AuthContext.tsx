@@ -16,10 +16,14 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
+  register: (name: string, email: string, password: string, phone?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
+
+// Access tokens expire in 15 minutes (see backend authConfig.accessTokenExpiry)
+// — refresh a bit early so a call in flight never lands on an expired token.
+const TOKEN_REFRESH_INTERVAL_MS = 14 * 60 * 1000;
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -58,11 +62,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(res.user);
   };
 
-  const register = async (name: string, email: string, password: string) => {
-    const res = await api.register(name, email, password);
+  const register = async (name: string, email: string, password: string, phone?: string) => {
+    const res = await api.register(name, email, password, phone);
     if (!res.success) throw new Error(res.message);
-    // Auto login after register (optional)
-    await login(email, password);
+    // No auto-login here — the backend requires a verified email before
+    // login succeeds, and a fresh registration is never verified yet.
   };
 
   const logout = async () => {
@@ -83,6 +87,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     }
   };
+
+  // Proactively renew the access token before it expires, using the
+  // httpOnly refresh-token cookie the backend set at login. Without this,
+  // every session silently starts failing API calls 15 minutes in with no
+  // recovery — the user just sees generic errors until they log out/in.
+  useEffect(() => {
+    if (!user) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.refreshToken();
+        if (!res.success) throw new Error(res.message || 'Refresh failed');
+        api.setToken(res.accessToken);
+      } catch (error) {
+        console.error('Session refresh failed, logging out', error);
+        api.removeToken();
+        setUser(null);
+      }
+    }, TOKEN_REFRESH_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{ 

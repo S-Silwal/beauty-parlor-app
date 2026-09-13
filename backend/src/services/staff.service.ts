@@ -1,6 +1,7 @@
 // src/services/staff.service.ts
 import { prisma } from "../config/database";
 import { CreateStaffInput, UpdateStaffInput } from "../validators/staff.validator";
+import { AppError } from "../utils/AppError";
 
 export class StaffService {
 
@@ -25,7 +26,7 @@ export class StaffService {
 
   static async update(id: string, data: UpdateStaffInput) {
     const staff = await prisma.staff.findUnique({ where: { id } });
-    if (!staff) throw new Error("Staff member not found");
+    if (!staff) throw new AppError("Staff member not found", 404);
 
     return await prisma.staff.update({
       where: { id },
@@ -43,7 +44,7 @@ export class StaffService {
   // This preserves historical appointment records that reference this staff
   static async delete(id: string) {
     const staff = await prisma.staff.findUnique({ where: { id } });
-    if (!staff) throw new Error("Staff member not found");
+    if (!staff) throw new AppError("Staff member not found", 404);
 
     return await prisma.staff.update({
       where: { id },

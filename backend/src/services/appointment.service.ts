@@ -1,13 +1,85 @@
 // src/services/appointment.service.ts
 import { prisma } from "../config/database";
-import { sendEmail } from '../notifications/email.service';
-import { AppointmentStatus, PaymentStatus } from "@prisma/client";
+import { AppointmentStatus, PaymentStatus, Prisma } from "@prisma/client";
 import { emitBookingCreated, emitBookingUpdated } from "../socket";
+import { AppError } from "../utils/AppError";
 import {
   notifyBookingConfirmed,
   notifyBookingCancelled,
   notifyBookingRescheduled,
 } from '../notifications/notification.service';
+
+type Tx = Prisma.TransactionClient;
+
+/**
+ * Checks staff_id + time-range overlap against active (PENDING/CONFIRMED)
+ * bookings. Must run inside the same transaction as the write that follows
+ * it — see runSerializable() below for why.
+ *
+ * A booking with no staff assigned only conflicts with other unassigned
+ * bookings (it represents a generic capacity slot, not a specific person),
+ * mirroring how getAvailableSlots() treats staff_id.
+ */
+export async function assertSlotAvailable(
+  tx: Tx,
+  params: { staffId?: string | null; newStart: Date; newEnd: Date; excludeAppointmentId?: string }
+) {
+  const { staffId, newStart, newEnd, excludeAppointmentId } = params;
+
+  const existingBookings = await tx.appointment.findMany({
+    where: {
+      ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
+      status: { in: ["PENDING", "CONFIRMED"] },
+      staff_id: staffId ?? null,
+      appointment_date: { lt: newEnd },
+    },
+    select: { appointment_date: true, duration: true },
+  });
+
+  for (const booking of existingBookings) {
+    const existingStart = new Date(booking.appointment_date);
+    const existingEnd = new Date(existingStart.getTime() + (booking.duration || 30) * 60 * 1000);
+
+    if (newStart < existingEnd && newEnd > existingStart) {
+      const availableFrom = existingEnd.toLocaleTimeString('en-US', {
+        hour: 'numeric', minute: '2-digit',
+      });
+      throw new AppError(
+        staffId
+          ? `This staff member is booked until ${availableFrom}. Please select a time at or after ${availableFrom}.`
+          : `This time slot is unavailable until ${availableFrom}. Please choose a different time.`,
+        409
+      );
+    }
+  }
+}
+
+const SERIALIZATION_RETRY_LIMIT = 3;
+
+/**
+ * Runs `fn` inside a Serializable transaction, retrying on a genuine write
+ * conflict. The overlap check (assertSlotAvailable) and the appointment
+ * create/update MUST happen inside this one transaction — checking and
+ * writing as two separate statements (as this file used to) lets two
+ * concurrent requests both pass the check and double-book the same slot.
+ * Serializable isolation makes Postgres abort one side of a real conflict
+ * (error P2034) instead of silently allowing it.
+ */
+export async function runSerializable<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  for (let attempt = 1; attempt <= SERIALIZATION_RETRY_LIMIT; attempt++) {
+    try {
+      return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (err: any) {
+      if (err.code === 'P2034' && attempt < SERIALIZATION_RETRY_LIMIT) continue;
+      if (err.code === 'P2034') {
+        throw new AppError("This time slot was just booked by someone else. Please choose a different time.", 409);
+      }
+      throw err;
+    }
+  }
+  /* istanbul ignore next — unreachable, loop always returns or throws */
+  throw new AppError("Failed to schedule appointment", 500);
+}
 
 export class AppointmentService {
 
@@ -36,14 +108,18 @@ export class AppointmentService {
     service_id?: string;
     staff_id?:   string;
   }) {
-    const targetDate = new Date(data.date);
-    if (isNaN(targetDate.getTime())) throw new Error("Invalid date format");
+    // Build the day window from the "YYYY-MM-DD" parts directly, in LOCAL
+    // time — never via `new Date(data.date)`. That string is parsed as UTC
+    // midnight, and re-zeroing its hours with setHours() then snaps it to
+    // local midnight of whatever calendar day that UTC instant falls on,
+    // which in a negative-UTC-offset timezone is the day BEFORE the one
+    // requested. That silently queried the wrong day's bookings for
+    // conflict-checking (correct only by coincidence in UTC-based zones).
+    const [y, m, d] = data.date.split('-').map(Number);
+    if (!y || !m || !d) throw new AppError("Invalid date format", 400);
 
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    const startOfDay = new Date(y, m - 1, d, 0, 0, 0, 0);
+    const endOfDay   = new Date(y, m - 1, d, 23, 59, 59, 999);
 
     // ✅ Get the duration of the service being requested
     // This lets us check whether the NEW booking would overlap with existing ones
@@ -134,119 +210,47 @@ export class AppointmentService {
   ) {
     const appointmentDate = new Date(data.appointment_date);
     if (isNaN(appointmentDate.getTime())) {
-      throw new Error("Invalid appointment date format");
+      throw new AppError("Invalid appointment date format", 400);
     }
 
     const service = await prisma.service.findUnique({
       where: { id: data.service_id },
     });
-    if (!service) throw new Error("Service not found");
+    if (!service) throw new AppError("Service not found", 404);
 
     const newStart = appointmentDate;
     const newEnd   = new Date(newStart.getTime() + service.duration * 60 * 1000);
 
-    // ✅ FIXED: Fetch ALL active bookings for this staff (not just exact time match)
-    // Then check overlap using: newStart < existingEnd AND newEnd > existingStart
-    if (data.staff_id) {
-      const existingBookings = await prisma.appointment.findMany({
-        where: {
-          staff_id: data.staff_id,
-          status:   { in: ["PENDING", "CONFIRMED"] },
-          // Only fetch bookings whose start time is before our new booking ends
-          appointment_date: { lt: newEnd },
-        },
-        select: {
-          id:               true,
-          appointment_date: true,
-          duration:         true,
-        },
-      });
+    // Overlap check + create happen inside one Serializable transaction —
+    // see runSerializable()'s comment for why that's required.
+    const appointment = await runSerializable(async (tx) => {
+      await assertSlotAvailable(tx, { staffId: data.staff_id, newStart, newEnd });
 
-      for (const booking of existingBookings) {
-        const existingStart = new Date(booking.appointment_date);
-        const existingEnd   = new Date(
-          existingStart.getTime() + (booking.duration || 30) * 60 * 1000
-        );
-
-        // True overlap
-        if (newStart < existingEnd && newEnd > existingStart) {
-          const availableFrom = existingEnd.toLocaleTimeString('en-US', {
-            hour: 'numeric', minute: '2-digit',
-          });
-          throw new Error(
-            `This staff member is booked until ${availableFrom}. ` +
-            `Please select a time at or after ${availableFrom}.`
-          );
-        }
-      }
-    } else {
-      // No specific staff selected — check for general slot conflict
-      const existingBookings = await prisma.appointment.findMany({
-        where: {
-          staff_id:         null,
-          status:           { in: ["PENDING", "CONFIRMED"] },
-          appointment_date: { lt: newEnd },
+      return tx.appointment.create({
+        data: {
+          user_id:          userId,
+          service_id:       data.service_id,
+          staff_id:         data.staff_id,
+          appointment_date: appointmentDate,
+          notes:            data.notes,
+          duration:         service.duration,
+          total_price:      service.price,
+          status:           "PENDING" as AppointmentStatus,
+          payment_status:   "PENDING" as PaymentStatus,
         },
-        select: {
-          appointment_date: true,
-          duration:         true,
+        include: {
+          service: true,
+          staff:   true,
+          user:    { select: { id: true, name: true, email: true } },
         },
       });
-
-      for (const booking of existingBookings) {
-        const existingStart = new Date(booking.appointment_date);
-        const existingEnd   = new Date(
-          existingStart.getTime() + (booking.duration || 30) * 60 * 1000
-        );
-        if (newStart < existingEnd && newEnd > existingStart) {
-          throw new Error("This time slot is unavailable. Please choose a different time.");
-        }
-      }
-    }
-
-    // Create appointment
-    const appointment = await prisma.appointment.create({
-      data: {
-        user_id:          userId,
-        service_id:       data.service_id,
-        staff_id:         data.staff_id,
-        appointment_date: appointmentDate,
-        notes:            data.notes,
-        duration:         service.duration,
-        total_price:      service.price,
-        status:           "PENDING" as AppointmentStatus,
-        payment_status:   "PENDING" as PaymentStatus,
-      },
-      include: {
-        service: true,
-        staff:   true,
-        user:    { select: { id: true, name: true, email: true } },
-      },
     });
 
     emitBookingCreated(appointment);
 
-    sendEmail({
-      event: 'BOOKING_CONFIRMED',
-      data: {
-        bookingId:       appointment.id,
-        customerName:    appointment.user.name,
-        customerEmail:   appointment.user.email,
-        serviceName:     appointment.service.name,
-        staffName:       appointment.staff?.name,
-        appointmentDate: new Date(appointment.appointment_date).toLocaleDateString('en-US', {
-          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-        }),
-        appointmentTime: new Date(appointment.appointment_date).toLocaleTimeString('en-US', {
-          hour: 'numeric', minute: '2-digit',
-        }),
-        price: `$${Number(appointment.total_price).toLocaleString('en-US')}`,
-        notes: appointment.notes ?? undefined,
-      },
-      userId:        appointment.user_id,
-      appointmentId: appointment.id,
-    }).catch(err => console.error('Email notification failed:', err));
-
+    // notifyBookingConfirmed() sends the confirmation email + SMS and
+    // schedules the 24h reminder — do not also call sendEmail() directly
+    // here, or the customer gets two confirmation emails per booking.
     notifyBookingConfirmed(appointment.id).catch(err =>
       console.error("Notification error:", err)
     );
@@ -268,8 +272,10 @@ export class AppointmentService {
     const appointment = await prisma.appointment.findFirst({
       where: { id: appointmentId },
     });
-    if (!appointment)                    throw new Error("Appointment not found");
-    if (appointment.user_id !== userId)  throw new Error("You can only cancel your own appointments");
+    if (!appointment)                    throw new AppError("Appointment not found", 404);
+    if (appointment.user_id !== userId)  throw new AppError("You can only cancel your own appointments", 403);
+    if (appointment.status === "CANCELLED") throw new AppError("This appointment is already cancelled", 409);
+    if (appointment.status === "COMPLETED") throw new AppError("Completed appointments cannot be cancelled", 409);
 
     const updated = await prisma.appointment.update({
       where:   { id: appointmentId },
@@ -294,49 +300,31 @@ export class AppointmentService {
     const appointment = await prisma.appointment.findFirst({
       where: { id: appointmentId },
     });
-    if (!appointment)                    throw new Error("Appointment not found");
-    if (appointment.user_id !== userId)  throw new Error("You can only reschedule your own appointments");
+    if (!appointment)                    throw new AppError("Appointment not found", 404);
+    if (appointment.user_id !== userId)  throw new AppError("You can only reschedule your own appointments", 403);
+    if (appointment.status === "CANCELLED") throw new AppError("Cancelled appointments cannot be rescheduled", 409);
+    if (appointment.status === "COMPLETED") throw new AppError("Completed appointments cannot be rescheduled", 409);
 
     const oldDate  = appointment.appointment_date;
     const newStart = new Date(data.appointment_date);
     const newEnd   = new Date(newStart.getTime() + appointment.duration * 60 * 1000);
     const staffId  = data.staff_id ?? appointment.staff_id;
 
-    // ✅ Overlap check for reschedule too
-    const existingBookings = await prisma.appointment.findMany({
-      where: {
-        id:       { not: appointmentId }, // exclude current appointment
-        status:   { in: ["PENDING", "CONFIRMED"] },
-        ...(staffId && { staff_id: staffId }),
-        appointment_date: { lt: newEnd },
-      },
-      select: { appointment_date: true, duration: true },
-    });
+    // Overlap check + update happen inside one Serializable transaction —
+    // see runSerializable()'s comment for why that's required.
+    const updated = await runSerializable(async (tx) => {
+      await assertSlotAvailable(tx, { staffId, newStart, newEnd, excludeAppointmentId: appointmentId });
 
-    for (const booking of existingBookings) {
-      const existingStart = new Date(booking.appointment_date);
-      const existingEnd   = new Date(
-        existingStart.getTime() + (booking.duration || 30) * 60 * 1000
-      );
-      if (newStart < existingEnd && newEnd > existingStart) {
-        const availableFrom = existingEnd.toLocaleTimeString('en-US', {
-          hour: 'numeric', minute: '2-digit',
-        });
-        throw new Error(
-          `This time slot is unavailable until ${availableFrom}. Please choose a later time.`
-        );
-      }
-    }
-
-    const updated = await prisma.appointment.update({
-      where: { id: appointmentId },
-      data: {
-        appointment_date: data.appointment_date,
-        staff_id:         data.staff_id,
-        notes:            data.notes,
-        status:           "RESCHEDULED" as AppointmentStatus,
-      },
-      include: { service: true, staff: true },
+      return tx.appointment.update({
+        where: { id: appointmentId },
+        data: {
+          appointment_date: data.appointment_date,
+          staff_id:         data.staff_id,
+          notes:            data.notes,
+          status:           "RESCHEDULED" as AppointmentStatus,
+        },
+        include: { service: true, staff: true },
+      });
     });
 
     emitBookingUpdated(updated);
@@ -364,10 +352,10 @@ export class AppointmentService {
     const appointment = await prisma.appointment.findFirst({
       where: { id: appointmentId },
     });
-    if (!appointment) throw new Error("Appointment not found");
+    if (!appointment) throw new AppError("Appointment not found", 404);
 
     if (appointment.status === "COMPLETED" && status !== "COMPLETED") {
-      throw new Error("Cannot change status of a completed appointment");
+      throw new AppError("Cannot change status of a completed appointment", 409);
     }
 
     const updated = await prisma.appointment.update({
@@ -398,9 +386,9 @@ export class AppointmentService {
       where:   { id: appointmentId },
       include: { transaction: true },
     });
-    if (!appointment)  throw new Error("Appointment not found");
+    if (!appointment)  throw new AppError("Appointment not found", 404);
     if (appointment.status !== "CONFIRMED") {
-      throw new Error("Only confirmed appointments can be marked as completed");
+      throw new AppError("Only confirmed appointments can be marked as completed", 409);
     }
 
     const updated = await prisma.appointment.update({
@@ -453,7 +441,7 @@ export class AppointmentService {
     const appointment = await prisma.appointment.findFirst({
       where: { id: appointmentId },
     });
-    if (!appointment) throw new Error("Appointment not found");
+    if (!appointment) throw new AppError("Appointment not found", 404);
 
     return await prisma.appointment.delete({ where: { id: appointmentId } });
   }

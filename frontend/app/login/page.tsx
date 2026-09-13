@@ -77,9 +77,14 @@ export default function LoginPage() {
         @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Jost:wght@300;400;500;600;700&display=swap');
 
         .lg {
-          min-height: 100vh;
+          /* Fills the viewport minus the 72px sticky Navbar above it,
+             instead of a full 100vh that stretched the split and pushed
+             the footer far below the fold. */
+          min-height: calc(100vh - 72px);
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          /* 46/54 image|form column ratio — a composed split rather than
+             an oversized poster image beside a sparse form. */
+          grid-template-columns: 46fr 54fr;
           font-family: 'Jost', sans-serif;
         }
 
@@ -88,7 +93,8 @@ export default function LoginPage() {
           position: relative;
           overflow: hidden;
           background: #1a1510;
-          min-height: 100vh;
+          /* height now comes from the grid row (stretches to match the
+             form column) instead of its own 100vh */
         }
 
         /* Each slide image */
@@ -102,49 +108,52 @@ export default function LoginPage() {
         .lg-slide.visible  { opacity: 0.78; }
         .lg-slide.fading-out { opacity: 0; }
 
-        /* Warm dark overlay */
+        /* Warm dark overlay — anchored to the lower third only, so the
+           top/middle of the photo (face + brush) stays clear and vivid
+           instead of a heavy scrim washing the whole image. */
         .lg-overlay {
           position: absolute; inset: 0; z-index: 1;
           background: linear-gradient(
-            160deg,
-            rgba(26,21,16,0.60) 0%,
-            rgba(44,35,25,0.35) 55%,
-            rgba(184,154,106,0.12) 100%
+            to top,
+            rgba(20,16,12,0.86) 0%,
+            rgba(20,16,12,0.62) 26%,
+            rgba(20,16,12,0.22) 48%,
+            rgba(20,16,12,0) 66%
           );
         }
 
-        /* Content over image */
+        /* Content over image — reserved wordmark removed (the sticky
+           Navbar above already shows it; keeping both was double
+           branding), freeing the frame for the headline stack. */
         .lg-visual-body {
           position: absolute; inset: 0; z-index: 2;
-          display: flex; flex-direction: column;
-          justify-content: space-between;
-          padding: 52px 56px;
         }
 
-        .lg-visual-logo {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: 30px; font-weight: 500;
-          color: #F7F3EE; letter-spacing: .01em;
+        /* Left-aligned stack in the lower-middle of the frame — moving
+           display headline starts around 58% down instead of being
+           pinned to the very bottom edge. */
+        .lg-visual-content {
+          position: absolute;
+          left: 32px; right: 32px; top: 58%;
+          padding-bottom: 48px; /* safe inset from the bottom edge */
         }
-        .lg-visual-logo em { font-style: italic; color: #D4B896; }
 
-        .lg-visual-bottom {}
         .lg-tagline {
           font-family: 'Cormorant Garamond', serif;
-          font-size: clamp(34px, 3.8vw, 54px); font-weight: 300;
-          color: #F7F3EE; line-height: 1.15; margin: 0 0 16px;
+          font-size: clamp(40px, 4vw, 56px); font-weight: 300;
+          color: #F7F3EE; line-height: 1.1; margin: 0 0 16px;
         }
         .lg-tagline em { font-style: italic; color: #D4B896; }
         .lg-visual-sub {
           font-size: 15px; font-weight: 300;
-          color: #C8BFB4; line-height: 1.8;
-          max-width: 340px; margin-bottom: 32px;
+          color: rgba(247,243,238,0.82); line-height: 1.8;
+          max-width: 36ch; margin-bottom: 32px;
         }
 
         /* Slide label pill */
         .lg-slide-label {
           display: inline-flex; align-items: center; gap: 8px;
-          background: rgba(255,255,255,0.1);
+          background: rgba(247,243,238,0.16);
           backdrop-filter: blur(8px);
           border: 1px solid rgba(212,184,150,0.3);
           border-radius: 2px; padding: 8px 16px;
@@ -192,7 +201,11 @@ export default function LoginPage() {
             transparent, #EDE6DC 25%, #EDE6DC 75%, transparent);
         }
 
-        .lg-form-box { width: 100%; max-width: 420px; }
+        .lg-form-box {
+          width: 100%; max-width: 420px;
+          /* optically slightly above true center */
+          transform: translateY(-14px);
+        }
 
         /* Form header */
         .lg-eyebrow {
@@ -206,8 +219,9 @@ export default function LoginPage() {
         }
         .lg-title em { font-style: italic; color: #B89A6A; }
         .lg-subtitle {
+          /* darkened from a washed-out #9E968E for real body-text contrast */
           font-size: 16px; font-weight: 300;
-          color: #9E968E; margin-bottom: 44px; line-height: 1.65;
+          color: #6E655B; margin-bottom: 40px; line-height: 1.6;
         }
 
         /* Error */
@@ -221,13 +235,13 @@ export default function LoginPage() {
         /* Fields */
         .lg-field { margin-bottom: 22px; }
         .lg-label {
-          display: block; font-size: 11px; font-weight: 600;
+          display: block; font-size: 12px; font-weight: 600;
           letter-spacing: .14em; text-transform: uppercase;
-          color: #6B635A; margin-bottom: 9px;
+          color: #5B5344; margin-bottom: 9px;
         }
         .lg-input-wrap { position: relative; }
         .lg-input {
-          width: 100%; padding: 15px 18px;
+          width: 100%; min-height: 50px; padding: 15px 18px;
           background: #FFFFFF; border: 1px solid #E8E0D6;
           border-radius: 3px;
           font-family: 'Jost', sans-serif;
@@ -265,11 +279,12 @@ export default function LoginPage() {
 
         /* Submit */
         .lg-submit {
-          width: 100%; padding: 16px;
+          width: 100%; height: 52px;
+          display: flex; align-items: center; justify-content: center;
           background: #2C2825; color: #F7F3EE;
           border: none; border-radius: 3px; cursor: pointer;
           font-family: 'Jost', sans-serif;
-          font-size: 12px; font-weight: 700;
+          font-size: 13px; font-weight: 700;
           letter-spacing: .18em; text-transform: uppercase;
           transition: background .22s, transform .2s;
           margin-bottom: 28px;
@@ -293,7 +308,7 @@ export default function LoginPage() {
         /* Register row */
         .lg-register-row {
           text-align: center;
-          font-size: 15px; font-weight: 300; color: #9E968E;
+          font-size: 14px; font-weight: 300; color: #7C7364;
         }
         .lg-register-link {
           color: #B89A6A; font-weight: 600;
@@ -310,18 +325,18 @@ export default function LoginPage() {
         .lg-trust-item {
           display: flex; align-items: center; gap: 7px;
           font-size: 11px; font-weight: 500; letter-spacing: .07em;
-          text-transform: uppercase; color: #B8B0A8;
+          text-transform: uppercase; color: #8B8276;
         }
 
         /* Mobile */
         @media (max-width: 800px) {
-          .lg { grid-template-columns: 1fr; }
-          .lg-visual { min-height: 260px; height: 260px; }
-          .lg-visual-body { padding: 28px 28px; }
-          .lg-visual-logo { font-size: 24px; }
-          .lg-tagline { font-size: 26px; }
-          .lg-form-panel { padding: 52px 28px; }
+          .lg { grid-template-columns: 1fr; min-height: auto; }
+          .lg-visual { min-height: 280px; height: 280px; }
+          .lg-visual-content { left: 20px; right: 20px; top: auto; bottom: 0; padding-bottom: 24px; }
+          .lg-tagline { font-size: 30px; }
+          .lg-form-panel { padding: 44px 24px; }
           .lg-form-panel::before { display: none; }
+          .lg-form-box { transform: none; }
           .lg-title { font-size: 40px; }
         }
       `}</style>
@@ -348,13 +363,10 @@ export default function LoginPage() {
 
           <div className="lg-overlay" suppressHydrationWarning />
 
-          /*<div className="lg-visual-body" suppressHydrationWarning>
-            {/* Logo */}
-            <div className="lg-visual-logo" suppressHydrationWarning>
-               <em> </em>
-            </div>*
-            {/* Bottom content */}
-            <div className="lg-visual-bottom">
+          <div className="lg-visual-body" suppressHydrationWarning>
+            {/* Left-aligned headline stack — lower-middle, not bottom-pinned.
+                No wordmark here: the sticky Navbar above already carries it. */}
+            <div className="lg-visual-content" suppressHydrationWarning>
               {/* Current treatment label */}
               <div className="lg-slide-label" suppressHydrationWarning>
                 <span className="lg-slide-label-dot" />
@@ -401,7 +413,6 @@ export default function LoginPage() {
               {/* Email */}
               <div className="lg-field" suppressHydrationWarning>
                 <label className="lg-label" htmlFor="lg-email">Email Address</label>
-            <div className="lg-register-row" suppressHydrationWarning>
                 <div className="lg-input-wrap" suppressHydrationWarning>
                   <input
                     id="lg-email"
@@ -415,8 +426,6 @@ export default function LoginPage() {
                     autoComplete="email"
                   />
                 </div>
-              </div>
-
               </div>
 
               {/* Password */}
