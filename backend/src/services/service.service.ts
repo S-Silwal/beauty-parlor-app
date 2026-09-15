@@ -70,7 +70,7 @@ export class ServiceService {
       entityType: "Service",
       entityId:   id,
       changes: diffFields(
-        { name: service.name, category: service.category, price: service.price, duration: service.duration, isActive: service.isActive },
+        { name: service.name, category: service.category, price: service.price.toNumber(), duration: service.duration, isActive: service.isActive },
         { name: data.name, category: data.category, price: data.price, duration: data.duration, isActive: data.isActive }
       ),
     }).catch(() => {});

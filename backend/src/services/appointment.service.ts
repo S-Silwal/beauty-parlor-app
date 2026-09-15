@@ -591,8 +591,8 @@ export class AppointmentService {
       entityType: "Appointment",
       entityId:   appointmentId,
       changes:    diffFields(
-        { status: appointment.status, payment_status: appointment.payment_status },
-        { status: "COMPLETED", payment_status: "PAID" }
+        { status: appointment.status as AppointmentStatus, payment_status: appointment.payment_status as PaymentStatus },
+        { status: "COMPLETED" as AppointmentStatus, payment_status: "PAID" as PaymentStatus }
       ),
     }).catch(() => {});
 
