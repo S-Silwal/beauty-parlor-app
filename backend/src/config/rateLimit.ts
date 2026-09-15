@@ -1,4 +1,13 @@
 // src/config/rateLimit.ts
+import dotenv from "dotenv";
+dotenv.config();
+
+// Local/testing override only — leave AUTH_RATE_LIMIT_MAX unset in any
+// deployed environment so the real 10/15min limit applies.
+const authMax = process.env.AUTH_RATE_LIMIT_MAX
+  ? parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10)
+  : 10;
+
 export const rateLimitConfig = {
 
   // General API — all routes
@@ -10,7 +19,7 @@ export const rateLimitConfig = {
   // Login attempts
   auth: {
     windowMs: 15 * 60 * 1000,  // 15 minutes
-    max:      10,               // 10 attempts (was wrongly set to 100)
+    max:      authMax,          // 10 attempts (was wrongly set to 100); override with AUTH_RATE_LIMIT_MAX for local testing
   },
 
   // Account registration

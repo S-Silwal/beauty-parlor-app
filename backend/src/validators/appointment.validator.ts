@@ -40,9 +40,9 @@ export const rescheduleSchema = z.object({
  */
 export const updateStatusSchema = z.object({
   status: z.enum(
-    ["PENDING", "CONFIRMED", "COMPLETED", "CANCELLED", "RESCHEDULED"],
+    ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "RESCHEDULED", "NO_SHOW"],
     {
-      message: "Invalid status. Must be PENDING, CONFIRMED, COMPLETED, CANCELLED or RESCHEDULED"
+      message: "Invalid status. Must be PENDING, CONFIRMED, CHECKED_IN, COMPLETED, CANCELLED, RESCHEDULED or NO_SHOW"
     }
   ),
   notes: z.string().max(500, "Notes cannot exceed 500 characters").optional(),

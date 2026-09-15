@@ -2,6 +2,7 @@
 import { Response, NextFunction } from "express";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { ChangeRequestService } from "../services/changeRequest.service";
+import { StaffService } from "../services/staff.service";
 import {
   requestEditSchema,
   requestCancelSchema,
@@ -65,9 +66,12 @@ export class ChangeRequestController {
 
   // ====================== ADMIN / STAFF ======================
   // Role is already enforced by isStaffOrAdmin middleware on these routes.
+  // A STAFF caller is further scoped to only requests against their own
+  // assigned appointments — see StaffService.resolveCallerStaffId().
   static async getPending(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const requests = await ChangeRequestService.getPendingRequests();
+      const staffId = await StaffService.resolveCallerStaffId(req.user!);
+      const requests = await ChangeRequestService.getPendingRequests({ staffId });
       res.json({ success: true, requests });
     } catch (error) {
       next(error);
@@ -78,8 +82,14 @@ export class ChangeRequestController {
     try {
       const { id } = req.params;
       const validated = resolveChangeRequestSchema.parse(req.body);
+      const staffId = await StaffService.resolveCallerStaffId(req.user!);
 
-      const request = await ChangeRequestService.resolve(id, validated.decision, validated.decline_reason);
+      const request = await ChangeRequestService.resolve(
+        id,
+        validated.decision,
+        validated.decline_reason,
+        staffId
+      );
 
       res.json({
         success: true,

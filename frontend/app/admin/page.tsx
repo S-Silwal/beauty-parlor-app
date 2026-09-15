@@ -30,6 +30,20 @@ interface Staff {
   email?: string;
   phone?: string;
   isActive: boolean;
+  // Only present on the admin listing (GET /api/staff/admin) — the public
+  // one never exposes a staff member's linked login account.
+  user_id?: string | null;
+  user?: { id: string; name: string; email: string } | null;
+}
+
+// A CUSTOMER or STAFF account that can be linked to a Staff row so that
+// person can log in and see/manage only their own assigned bookings. See
+// GET /api/users (admin-only).
+interface Account {
+  id: string;
+  name: string;
+  email: string;
+  role: 'CUSTOMER' | 'STAFF';
 }
 
 interface GalleryImage {
@@ -129,8 +143,9 @@ export default function AdminPanel() {
 
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
-  const [staffForm, setStaffForm]         = useState({ name: '', specialization: '', email: '', phone: '', isActive: true });
+  const [staffForm, setStaffForm]         = useState({ name: '', specialization: '', email: '', phone: '', isActive: true, user_id: '' });
   const [staffLoading, setStaffLoading]   = useState(false);
+  const [accounts, setAccounts]           = useState<Account[]>([]);
 
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [galleryForm, setGalleryForm]           = useState({ alt_text: '', category: 'brows_lashes' });
@@ -186,10 +201,27 @@ export default function AdminPanel() {
 
   const fetchStaff = async () => {
     try {
-      const res  = await fetch(`${API}/api/staff`);
+      // The admin-only listing (unlike public GET /api/staff) includes each
+      // staff member's linked login account, which the Staff Management UI
+      // needs to show/edit.
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/staff/admin`, {
+        headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
+      });
       const data = await res.json();
       if (data.success) setStaff(data.staff || []);
     } catch (err) { console.error('Failed to fetch staff', err); }
+  };
+
+  const fetchAccounts = async () => {
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/users`, {
+        headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
+      });
+      const data = await res.json();
+      if (data.success) setAccounts(data.users || []);
+    } catch (err) { console.error('Failed to fetch accounts', err); }
   };
 
   const fetchGallery = async () => {
@@ -227,7 +259,7 @@ export default function AdminPanel() {
     if (!user || !isAdmin) return;
 
     (async () => {
-      await Promise.all([fetchBookings(), fetchStaff(), fetchGallery(), fetchServices(), fetchChangeRequests()]);
+      await Promise.all([fetchBookings(), fetchStaff(), fetchAccounts(), fetchGallery(), fetchServices(), fetchChangeRequests()]);
     })();
 
     const socket = initSocket();
@@ -292,7 +324,7 @@ export default function AdminPanel() {
     }
   };
 
-  const emptyStaffForm = { name: '', specialization: '', email: '', phone: '', isActive: true };
+  const emptyStaffForm = { name: '', specialization: '', email: '', phone: '', isActive: true, user_id: '' };
 
   const openAddStaff = () => {
     setEditingStaffId(null);
@@ -308,6 +340,7 @@ export default function AdminPanel() {
       email: s.email || '',
       phone: s.phone || '',
       isActive: s.isActive,
+      user_id: s.user_id || '',
     });
     setShowStaffForm(true);
   };
@@ -318,6 +351,14 @@ export default function AdminPanel() {
     setStaffForm(emptyStaffForm);
   };
 
+  // Accounts an admin can pick from for the "linked login" dropdown: not
+  // already linked to a *different* staff member (the backend would reject
+  // that with a 409 anyway — filtering here just keeps the list honest).
+  // The staff member currently being edited keeps seeing their own account.
+  const linkableAccounts = accounts.filter(
+    a => !staff.some(s => s.user_id === a.id && s.id !== editingStaffId)
+  );
+
   const handleSaveStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!staffForm.name.trim()) return;
@@ -325,17 +366,26 @@ export default function AdminPanel() {
     try {
       const token   = api.getToken();
       const isEdit  = !!editingStaffId;
+      const { user_id, ...rest } = staffForm;
+      const payload = {
+        ...rest,
+        // Create: omit entirely when unset (undefined isn't sent by
+        // JSON.stringify). Update: send null to explicitly clear an
+        // existing link — the backend treats that as "unlink".
+        ...(user_id ? { user_id } : isEdit ? { user_id: null } : {}),
+      };
       const res     = await fetch(`${API}/api/staff${isEdit ? `/${editingStaffId}` : ''}`, {
         method: isEdit ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         credentials: 'include',
-        body: JSON.stringify(staffForm),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.success) {
         showToast(isEdit ? 'Staff member updated successfully' : 'Staff member added successfully');
         closeStaffForm();
         fetchStaff();
+        fetchAccounts();
       } else showToast(data.message || `Failed to ${isEdit ? 'update' : 'add'} staff`, 'error');
     } catch { showToast(`Failed to ${editingStaffId ? 'update' : 'add'} staff`, 'error'); }
     finally { setStaffLoading(false); }
@@ -349,7 +399,7 @@ export default function AdminPanel() {
         method: 'DELETE', headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
       });
       const data = await res.json();
-      if (data.success) { showToast('Staff removed'); fetchStaff(); }
+      if (data.success) { showToast('Staff removed'); fetchStaff(); fetchAccounts(); }
       else showToast(data.message || 'Failed to remove staff', 'error');
     } catch { showToast('Failed to remove staff', 'error'); }
   };
@@ -412,7 +462,7 @@ export default function AdminPanel() {
         const sigRes  = await fetch(`${API}/api/services/signed-url`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
         const sigData = await sigRes.json();
         if (!sigData.success) throw new Error('Failed to get upload signature');
-        const { signature, timestamp, apiKey, folder, uploadUrl } = sigData;
+        const { signature, timestamp, apiKey, folder, allowedFormats, uploadUrl } = sigData;
         setServiceUploadProgress(45);
         const formData = new FormData();
         formData.append('file', selectedServiceFile);
@@ -420,6 +470,9 @@ export default function AdminPanel() {
         formData.append('timestamp', String(timestamp));
         formData.append('api_key', apiKey);
         formData.append('folder', folder);
+        // Must match exactly what the backend signed — Cloudinary rejects
+        // the request if the params sent don't match the signed string.
+        formData.append('allowed_formats', allowedFormats);
         const uploadRes  = await fetch(uploadUrl, { method: 'POST', body: formData });
         const uploadData = await uploadRes.json();
         if (!uploadRes.ok) throw new Error(uploadData.error?.message || 'Cloudinary upload failed');
@@ -484,7 +537,7 @@ export default function AdminPanel() {
       const sigRes  = await fetch(`${API}/api/gallery/signed-url`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
       const sigData = await sigRes.json();
       if (!sigData.success) throw new Error('Failed to get upload signature');
-      const { signature, timestamp, apiKey, cloudName, folder, uploadUrl } = sigData;
+      const { signature, timestamp, apiKey, cloudName, folder, allowedFormats, uploadUrl } = sigData;
       setUploadProgress(20);
       const formData = new FormData();
       formData.append('file', selectedFile);
@@ -492,6 +545,9 @@ export default function AdminPanel() {
       formData.append('timestamp', String(timestamp));
       formData.append('api_key', apiKey);
       formData.append('folder', folder);
+      // Must match exactly what the backend signed — Cloudinary rejects the
+      // request if the params sent don't match the signed string.
+      formData.append('allowed_formats', allowedFormats);
       const uploadRes  = await fetch(uploadUrl, { method: 'POST', body: formData });
       const uploadData = await uploadRes.json();
       if (!uploadRes.ok) throw new Error(uploadData.error?.message || 'Cloudinary upload failed');
@@ -1038,6 +1094,14 @@ export default function AdminPanel() {
                         {s.email && <p>✉️ {s.email}</p>}
                         {s.phone && <p>📞 {s.phone}</p>}
                         <p style={{ marginTop:6 }}>Status: <span style={{ color:s.isActive ? '#065F46' : '#991B1B', fontWeight:600 }}>{s.isActive ? 'Active' : 'Inactive'}</span></p>
+                        <p style={{ marginTop:6 }}>
+                          Portal login:{' '}
+                          {s.user ? (
+                            <span style={{ color:'#065F46', fontWeight:600 }}>{s.user.name} ({s.user.email})</span>
+                          ) : (
+                            <span style={{ color:'#9E968E' }}>None</span>
+                          )}
+                        </p>
                       </div>
                       <div className="ap-staff-actions">
                         <button className="ap-staff-edit" onClick={() => openEditStaff(s)}>Edit</button>
@@ -1192,6 +1256,24 @@ export default function AdminPanel() {
               <div className="ap-form-field">
                 <label className="ap-form-label">Phone</label>
                 <input className="ap-form-input" type="tel" value={staffForm.phone} placeholder="(317) 555-0187" onChange={e => setStaffForm(p => ({ ...p, phone:e.target.value }))}/>
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Portal Login</label>
+                <select
+                  className="ap-form-select"
+                  value={staffForm.user_id}
+                  onChange={e => setStaffForm(p => ({ ...p, user_id: e.target.value }))}
+                >
+                  <option value="">No portal login</option>
+                  {linkableAccounts.map(a => (
+                    <option key={a.id} value={a.id}>{a.name} ({a.email})</option>
+                  ))}
+                </select>
+                <p style={{ fontSize:12, color:'#9E968E', marginTop:6, lineHeight:1.5 }}>
+                  Linking a customer account here promotes it to Staff and scopes that
+                  login to only this person&apos;s own bookings. Only accounts not
+                  already linked to another staff member are listed.
+                </p>
               </div>
               {editingStaffId && (
                 <label className="ap-form-checkbox">

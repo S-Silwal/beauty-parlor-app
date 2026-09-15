@@ -4,8 +4,14 @@ dotenv.config();//
 
 export const socketConfig = {
   cors: {
-    // "*" in dev, real frontend URL in production
-    origin:  process.env.FRONTEND_URL || "http://localhost:3000",
+    // Mirrors config/server.ts's Express CORS origin — FRONTEND_URL is a
+    // comma-separated list (staging + prod, or www + apex). Socket.io's
+    // origin check is an exact string match, so passing the raw un-split
+    // string here used to silently fail the handshake for every origin
+    // except whichever happened to match the whole string.
+    origin: process.env.FRONTEND_URL
+      ? process.env.FRONTEND_URL.split(",").map((url) => url.trim())
+      : ["http://localhost:3000", "http://localhost:3001"],
     methods: ["GET", "POST"] as string[],
     credentials: true,
   },

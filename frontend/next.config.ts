@@ -3,6 +3,11 @@ import type { NextConfig } from 'next';
 import path from 'path';
 
 const nextConfig: NextConfig = {
+  // Produces a minimal, self-contained .next/standalone build (server.js +
+  // only the node_modules actually used) — the production Dockerfile copies
+  // just that output instead of the full node_modules tree.
+  output: 'standalone',
+
   turbopack: {
     root: path.resolve(__dirname),
   },

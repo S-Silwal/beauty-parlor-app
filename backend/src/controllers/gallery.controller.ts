@@ -2,14 +2,22 @@
 import { Request, Response, NextFunction } from "express";
 import { GalleryService } from "../services/gallery.service";
 import { AuthRequest } from "../middleware/auth.middleware";
+import { parsePagination } from "../utils/pagination";
 
 export class GalleryController {
 
   // ── Get all active images (public) ───────────────────────────────────────
   static async getAllImages(req: Request, res: Response, next: NextFunction) {
     try {
-      const images = await GalleryService.getAllImages();
-      res.json({ success: true, images });
+      const pagination = parsePagination(req.query);
+      const result = await GalleryService.getAllImages(pagination ?? undefined);
+      if (Array.isArray(result)) {
+        res.json({ success: true, images: result });
+      } else {
+        res.json({ success: true, images: result.items, pagination: {
+          total: result.total, page: result.page, limit: result.limit,
+        }});
+      }
     } catch (error) {
       next(error);
     }

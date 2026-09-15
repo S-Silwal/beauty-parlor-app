@@ -36,7 +36,10 @@ export class ServiceController {
       const { id } = req.params;
       const validatedData = updateServiceSchema.parse(req.body);
 
-      const service = await ServiceService.update(id, validatedData);
+      const service = await ServiceService.update(id, validatedData, {
+        userId: req.user!.userId,
+        role:   req.user!.role,
+      });
 
       res.json({
         success: true,

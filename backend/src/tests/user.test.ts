@@ -5,14 +5,16 @@ import { prisma } from '../config/database';
 
 const TEST_EMAIL = 'user_test@example.com';
 const OTHER_EMAIL = 'user_test_other@example.com';
+const ADMIN_EMAIL = 'user_test_admin@example.com';
 const PASSWORD = 'TestPass123!';
 const NEW_PASSWORD = 'NewTestPass456!';
 
 describe('User Profile API Tests', () => {
   let token: string;
+  let adminToken: string;
 
   beforeAll(async () => {
-    await prisma.user.deleteMany({ where: { email: { in: [TEST_EMAIL, OTHER_EMAIL] } } });
+    await prisma.user.deleteMany({ where: { email: { in: [TEST_EMAIL, OTHER_EMAIL, ADMIN_EMAIL] } } });
 
     await request(app).post('/api/auth/register').send({ name: 'User Test', email: TEST_EMAIL, password: PASSWORD });
     await prisma.user.update({ where: { email: TEST_EMAIL }, data: { is_verified: true } });
@@ -20,12 +22,34 @@ describe('User Profile API Tests', () => {
     await request(app).post('/api/auth/register').send({ name: 'Other User', email: OTHER_EMAIL, password: PASSWORD });
     await prisma.user.update({ where: { email: OTHER_EMAIL }, data: { is_verified: true } });
 
+    await request(app).post('/api/auth/register').send({ name: 'Admin User', email: ADMIN_EMAIL, password: PASSWORD });
+    await prisma.user.update({ where: { email: ADMIN_EMAIL }, data: { is_verified: true, role: 'ADMIN' } });
+
     const login = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: PASSWORD });
     token = login.body.accessToken;
+
+    const adminLogin = await request(app).post('/api/auth/login').send({ email: ADMIN_EMAIL, password: PASSWORD });
+    adminToken = adminLogin.body.accessToken;
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { email: { in: [TEST_EMAIL, OTHER_EMAIL] } } });
+    await prisma.user.deleteMany({ where: { email: { in: [TEST_EMAIL, OTHER_EMAIL, ADMIN_EMAIL] } } });
+  });
+
+  it('rejects a non-admin listing accounts', async () => {
+    const res = await request(app).get('/api/users').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('lets an admin list accounts (for linking a user as staff)', async () => {
+    const res = await request(app).get('/api/users').set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    const emails = res.body.users.map((u: { email: string }) => u.email);
+    expect(emails).toContain(TEST_EMAIL);
+    // Admin accounts are excluded — they're never valid staff-link candidates.
+    expect(emails).not.toContain(ADMIN_EMAIL);
   });
 
   it('rejects fetching the profile without a token', async () => {

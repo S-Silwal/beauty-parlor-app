@@ -4,7 +4,13 @@ dotenv.config();
 
 export const authConfig = {
   jwtSecret:          process.env.JWT_SECRET!,
-  refreshSecret:      process.env.REFRESH_SECRET || process.env.JWT_SECRET!,//secret key used to sign refresh tokens, fallback to JWT_SECRET if not provided
+  // No fallback to JWT_SECRET here on purpose: validateEnv's REQUIRED list
+  // already refuses to boot the app if REFRESH_SECRET is unset, so a
+  // fallback could never actually run — it was dead code that read as if
+  // the app had a weaker guarantee (silently reusing JWT_SECRET) than it
+  // actually enforces (REFRESH_SECRET is mandatory, full stop). See the
+  // 30-day hardening audit's note on this line.
+  refreshSecret:      process.env.REFRESH_SECRET!,//secret key used to sign refresh tokens
 
   // ✅ as const narrows the type from string → "15m" and "7d" exactly
   // jwt.sign() needs the literal type, not just string

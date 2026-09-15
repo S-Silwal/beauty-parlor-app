@@ -1,6 +1,7 @@
 // src/controllers/appointment.controller.ts
 import { Request, Response, NextFunction } from "express";
 import { AppointmentService } from "../services/appointment.service";
+import { StaffService } from "../services/staff.service";
 
 // ✅ Correct Import - Remove local interface
 import { AuthRequest } from "../middleware/auth.middleware";
@@ -12,14 +13,24 @@ import {
   updateStatusSchema,
   getAvailableSlotsSchema,
 } from "../validators/appointment.validator";
+import { parsePagination } from "../utils/pagination";
 
 export class AppointmentController {
 
   // ====================== PUBLIC ROUTES ======================
   static async getServices(req: Request, res: Response, next: NextFunction) {
     try {
-      const services = await AppointmentService.getAllServices();
-      res.json({ success: true, services });
+      const pagination = parsePagination(req.query);
+      const result = await AppointmentService.getAllServices(pagination ?? undefined);
+      // Unpaginated (default) callers get back exactly what they always did
+      // — a plain `services` array — so this stays backward compatible.
+      if (Array.isArray(result)) {
+        res.json({ success: true, services: result });
+      } else {
+        res.json({ success: true, services: result.items, pagination: {
+          total: result.total, page: result.page, limit: result.limit,
+        }});
+      }
     } catch (error) {
       next(error);
     }
@@ -27,8 +38,15 @@ export class AppointmentController {
 
   static async getStaff(req: Request, res: Response, next: NextFunction) {
     try {
-      const staff = await AppointmentService.getAllStaff();
-      res.json({ success: true, staff });
+      const pagination = parsePagination(req.query);
+      const result = await AppointmentService.getAllStaff(pagination ?? undefined);
+      if (Array.isArray(result)) {
+        res.json({ success: true, staff: result });
+      } else {
+        res.json({ success: true, staff: result.items, pagination: {
+          total: result.total, page: result.page, limit: result.limit,
+        }});
+      }
     } catch (error) {
       next(error);
     }
@@ -136,10 +154,21 @@ export class AppointmentController {
 
   // ====================== ADMIN / STAFF ROUTES ======================
   // Role is already enforced by isStaffOrAdmin middleware on these routes.
+  // Beyond that, a STAFF caller is further scoped to only their own
+  // assigned appointments — see StaffService.resolveCallerStaffId(). ADMIN
+  // gets `undefined` back (no filter), preserving the old unrestricted view.
   static async getAllAppointments(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const appointments = await AppointmentService.getAllAppointments();
-      res.json({ success: true, appointments });
+      const staffId = await StaffService.resolveCallerStaffId(req.user!);
+      const pagination = parsePagination(req.query);
+      const result = await AppointmentService.getAllAppointments({ staffId, pagination: pagination ?? undefined });
+      if (Array.isArray(result)) {
+        res.json({ success: true, appointments: result });
+      } else {
+        res.json({ success: true, appointments: result.items, pagination: {
+          total: result.total, page: result.page, limit: result.limit,
+        }});
+      }
     } catch (error) {
       next(error);
     }
@@ -149,15 +178,19 @@ export class AppointmentController {
     try {
       const { id } = req.params;
       const validated = updateStatusSchema.parse(req.body);
+      const staffId = await StaffService.resolveCallerStaffId(req.user!);
 
       // Marking a booking COMPLETED is also what records the payment: it
       // must flip payment_status to PAID and create the Transaction row,
       // or the amount would never satisfy the Revenue section's
       // "COMPLETED + PAID" definition of earned revenue. Every other
-      // status transition goes through the plain status update.
+      // status transition goes through the plain status update. Passing
+      // staffId (undefined for ADMIN) enforces that a staff caller can only
+      // touch appointments assigned to them.
+      const actor = { userId: req.user!.userId, role: req.user!.role };
       const appointment = validated.status === "COMPLETED"
-        ? await AppointmentService.completeAppointmentWithPayment(id)
-        : await AppointmentService.updateAppointmentStatus(id, validated.status);
+        ? await AppointmentService.completeAppointmentWithPayment(id, staffId, actor)
+        : await AppointmentService.updateAppointmentStatus(id, validated.status, staffId, actor);
 
       res.json({
         success: true,

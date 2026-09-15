@@ -1,0 +1,64 @@
+# Crown & Glow — local/dev-parity stack: Postgres + backend API + frontend.
+#
+# Quick start:
+#   1. cp backend/.env.example backend/.env  and fill in the real secrets
+#      (Resend/Twilio/Cloudinary/QStash keys, JWT_SECRET, REFRESH_SECRET).
+#   2. docker compose up -d --build
+#   3. docker compose exec backend npm run db:seed   (first run only)
+#
+# The backend's DATABASE_URL is overridden below to point at the `postgres`
+# service by its Compose network name — whatever is in backend/.env for
+# DATABASE_URL is ignored for the containerized stack (it's still used if
+# you run `npm run dev` on the host directly against a local Postgres).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+      POSTGRES_DB: beauty_parlor
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/beauty_parlor?schema=public
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      BACKEND_URL: ${BACKEND_URL:-http://localhost:5000}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

@@ -14,6 +14,7 @@ import dotenv from "dotenv";
 // Configs
 import { prisma } from "./config/database";
 import { serverConfig } from "./config/server";
+import { checkAllIntegrations } from "./utils/externalHealthChecks";
 
 // Routes
 import authRoutes from "./routes/auth.routes";
@@ -27,6 +28,7 @@ import reviewRoutes from "./routes/review.routes";
 
 // Middleware
 import { errorHandler } from "./middleware/error.middleware";
+import { requestContext } from "./middleware/requestContext.middleware";
 import {
   apiRateLimiter,
   authRateLimiter,
@@ -41,7 +43,31 @@ dotenv.config();
 const app = express();
 
 // ====================== GLOBAL MIDDLEWARE ======================
-app.use(helmet());
+// This is a pure JSON API — no HTML views, no inline scripts/styles to
+// allow, no legitimate reason to ever be framed by another page. helmet()'s
+// bare defaults are already reasonably strict, but they're written out
+// explicitly and locked all the way down here rather than relying on
+// undocumented defaults — see "worth a CSP... check its default directives
+// are actually restrictive" in the 30-day hardening audit.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        formAction: ["'none'"],
+        baseUri: ["'none'"],
+        objectSrc: ["'none'"],
+      },
+    },
+    frameguard: { action: "deny" },
+  })
+);
+
+// Assigns req.requestId + X-Request-Id, and logs one structured line per
+// completed request — needed to correlate a failed booking with whatever
+// background notification attempt it triggered (see H6 in the audit).
+app.use(requestContext);
 
 if (serverConfig.nodeEnv !== "test") {
   app.use(morgan(serverConfig.nodeEnv === "production" ? "combined" : "dev"));
@@ -87,7 +113,15 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/reviews", reviewRoutes);
 
 // ====================== HEALTH CHECK ======================
+// Used to only ping Postgres, so monitoring could report "all green" while
+// email, SMS, image storage, or scheduled reminders were silently broken —
+// see the 30-day hardening audit. `status`/HTTP code still reflect only the
+// database (the thing that actually makes the app unusable if it's down);
+// `integrations` surfaces the rest so a dashboard/alert can catch "core is
+// up but Resend is down" without treating the whole service as unhealthy.
 app.get("/health", async (req, res) => {
+  const integrations = await checkAllIntegrations();
+
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.json({
@@ -96,6 +130,7 @@ app.get("/health", async (req, res) => {
       server: "Running ✅",
       database: "Connected ✅",
       environment: serverConfig.nodeEnv,
+      integrations,
     });
   } catch (error) {
     console.error("Health check error:", error);
@@ -103,6 +138,7 @@ app.get("/health", async (req, res) => {
       success: false,
       status: "Error",
       database: "NOT Connected ❌",
+      integrations,
     });
   }
 });

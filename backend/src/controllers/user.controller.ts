@@ -42,4 +42,16 @@ export class UserController {
       next(error);
     }
   }
+
+  // Role is already enforced by isAdmin middleware on this route. Lets the
+  // admin UI look up a user's ID to link as staff (see StaffService.create/
+  // update's user_id field) without going through Prisma Studio.
+  static async listAccounts(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const users = await UserService.listAccounts();
+      res.json({ success: true, users });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

@@ -19,6 +19,7 @@ const RECOMMENDED = [
   "QSTASH_TOKEN",
   "QSTASH_CURRENT_SIGNING_KEY",
   "QSTASH_NEXT_SIGNING_KEY",
+  "SENTRY_DSN",
 ];
 
 export function validateEnv(): void {

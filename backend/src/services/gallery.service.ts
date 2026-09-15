@@ -1,30 +1,35 @@
 // src/services/gallery.service.ts
 import { prisma } from "../config/database";
-import { cloudinary } from "../config/cloudinary";
+import {
+  cloudinary,
+  extractCloudinaryPublicId,
+  verifyCloudinaryImage,
+  ALLOWED_IMAGE_FORMATS,
+} from "../config/cloudinary";
 import crypto from "crypto";
 import { AppError } from "../utils/AppError";
+import { PageParams, PaginatedResult } from "../utils/pagination";
 
-/**
- * Best-effort extraction of a Cloudinary public_id from a stored secure_url.
- * We don't persist public_id separately, so this is derived from the URL's
- * well-known shape: .../upload/[v<version>/]<public_id>.<ext> — this app
- * never requests transformation segments, so that's always the public_id.
- * Returns null for anything that doesn't look like a Cloudinary upload URL
- * (e.g. the Unsplash URLs used by the seed data) — those are simply skipped.
- */
-function extractCloudinaryPublicId(url: string): string | null {
-  const match = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/);
-  return match ? match[1] : null;
-}
+const GALLERY_FOLDER = "beauty-parlor/gallery";
 
 export class GalleryService {
 
   // ── Get all active images ─────────────────────────────────────────────────
-  static async getAllImages() {
-    return await prisma.galleryImage.findMany({
-      where: { is_active: true },
-      orderBy: { created_at: "desc" },
-    });
+  // `pagination` is optional and opt-in (see utils/pagination.ts) — omit it
+  // and this returns the full array exactly as before.
+  static async getAllImages(pagination?: PageParams): Promise<any[] | PaginatedResult<any>> {
+    const where = { is_active: true };
+    if (!pagination) {
+      return await prisma.galleryImage.findMany({ where, orderBy: { created_at: "desc" } });
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.galleryImage.findMany({
+        where, orderBy: { created_at: "desc" }, skip: pagination.skip, take: pagination.take,
+      }),
+      prisma.galleryImage.count({ where }),
+    ]);
+    return { items, total, page: pagination.page, limit: pagination.limit };
   }
 
   // ── Generate signed Cloudinary upload URL ─────────────────────────────────
@@ -42,11 +47,14 @@ export class GalleryService {
       );
     }
 
-    const timestamp  = Math.round(Date.now() / 1000);
-    const folder     = "beauty-parlor/gallery";
+    const timestamp     = Math.round(Date.now() / 1000);
+    const folder        = GALLERY_FOLDER;
+    const allowedFormats = ALLOWED_IMAGE_FORMATS.join(",");
 
-    // Create signature string
-    const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
+    // Signed params must be included here in the exact string Cloudinary is
+    // told to verify — alphabetical order (allowed_formats, folder,
+    // timestamp) is how Cloudinary itself builds the string to sign.
+    const paramsToSign = `allowed_formats=${allowedFormats}&folder=${folder}&timestamp=${timestamp}`;
     const signature    = crypto
       .createHash("sha256")
       .update(paramsToSign + apiSecret)
@@ -58,17 +66,25 @@ export class GalleryService {
       apiKey,
       cloudName,
       folder,
+      allowedFormats,
       uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
     };
   }
 
   // ── Save image record to DB after Cloudinary upload ───────────────────────
+  // Re-verifies the asset against Cloudinary's own record before trusting it
+  // — see verifyCloudinaryImage()'s comment for why the signed params alone
+  // aren't enough. Any URL that isn't a real, in-policy asset in this
+  // account's gallery folder is rejected (and cleaned up if it does exist
+  // but violates policy) rather than persisted.
   static async saveImage(data: {
     url:        string;
     public_id?: string;
     alt_text?:  string;
     category?:  string;
   }) {
+    await verifyCloudinaryImage(data.url, GALLERY_FOLDER);
+
     return await prisma.galleryImage.create({
       data: {
         url:          data.url,

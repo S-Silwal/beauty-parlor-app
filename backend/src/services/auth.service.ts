@@ -11,17 +11,63 @@ import { AppError } from "../utils/AppError";
 
 const resend = new Resend(emailConfig.resendApiKey);
 
+export type AuthEmailEvent = "EMAIL_VERIFICATION" | "PASSWORD_RESET" | "MFA_OTP";
+
 // ── Email helper ─────────────────────────────────────────────────────────────
-async function sendAuthEmail(to: string, subject: string, html: string) {
+// Verification/reset/OTP emails used to only console.error on failure, with
+// no record anywhere that it happened (unlike the booking-flow emails in
+// notifications/email.service.ts, which always write to NotificationLog).
+// A customer who never got their reset link had no recourse, and support
+// had no way to see it happened either — see H11 in
+// PRODUCTION_READINESS_AUDIT.md. This now logs the same way the booking
+// flow does, WITHOUT changing the anti-enumeration behavior of the callers
+// below: they still always report success regardless of delivery, and this
+// function still never throws — it only makes the failure visible in
+// NotificationLog (and therefore to an admin/ops query) instead of
+// vanishing into console output no one is watching.
+async function sendAuthEmail(
+  to: string,
+  subject: string,
+  html: string,
+  event: AuthEmailEvent,
+  userId: string,
+) {
+  const log = await prisma.notificationLog.create({
+    data: {
+      user_id:  userId,
+      type:     "EMAIL",
+      event,
+      status:   "PENDING",
+      recipient: to,
+    },
+  });
+
   try {
-    await resend.emails.send({
+    const result = await resend.emails.send({
       from: emailConfig.fromEmail,
       to,
       subject,
       html,
     });
+
+    // The Resend SDK resolves instead of rejecting on API-level failures —
+    // the failure comes back as `result.error`, not a thrown exception (see
+    // notifications/email.service.ts's sendEmail for the same pattern).
+    if (result.error) {
+      throw new Error(result.error.message);
+    }
+
+    await prisma.notificationLog.update({
+      where: { id: log.id },
+      data:  { status: "SENT", sent_at: new Date(), external_id: result.data?.id },
+    });
+
     console.log(`📧 Auth email sent to ${to}: ${subject}`);
   } catch (err: any) {
+    await prisma.notificationLog.update({
+      where: { id: log.id },
+      data:  { status: "FAILED", error_message: err.message },
+    });
     console.error(`❌ Failed to send auth email to ${to}:`, err.message);
   }
 }
@@ -58,6 +104,40 @@ function verificationEmailHtml(name: string, verifyUrl: string): string {
     <p class="p">Please verify your email address to activate your account and start booking appointments.</p>
     <center><a href="${verifyUrl}" class="btn">Verify Email Address</a></center>
     <p class="note">This link expires in <strong>24 hours</strong>. If you didn't create an account, you can safely ignore this email.</p>
+  </div>
+  <div class="ft"><p>Crown &amp; Glow · 456 Glow Avenue, Suite 200, Indianapolis, IN 46204</p></div>
+</div></div></body></html>`;
+}
+
+function otpEmailHtml(name: string, code: string): string {
+  return `
+<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+<style>
+  body{font-family:'Helvetica Neue',Arial,sans-serif;background:#F7F3EE;margin:0;padding:0;}
+  .wrap{max-width:560px;margin:32px auto;padding:0 16px;}
+  .card{background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 4px 24px rgba(44,40,37,.08);}
+  .hdr{background:#2C2825;padding:32px 40px;text-align:center;}
+  .logo{font-size:24px;font-weight:300;color:#F7F3EE;letter-spacing:.04em;}
+  .logo em{font-style:italic;color:#D4B896;}
+  .bar{height:3px;background:linear-gradient(to right,#B89A6A,#D4B896,#B89A6A);}
+  .body{padding:40px;}
+  .h1{font-size:24px;font-weight:300;color:#2C2825;margin:0 0 8px;}
+  .h1 em{font-style:italic;color:#B89A6A;}
+  .p{font-size:15px;line-height:1.8;color:#6B635A;margin:0 0 16px;}
+  .code{display:inline-block;background:#F7F3EE;color:#2C2825;letter-spacing:.3em;
+        font-size:32px;font-weight:700;padding:16px 28px;border-radius:8px;margin:8px 0 16px;}
+  .note{font-size:12px;color:#9E968E;margin-top:24px;padding-top:16px;border-top:1px solid #EDE6DC;}
+  .ft{padding:24px 40px;text-align:center;border-top:1px solid #EDE6DC;}
+  .ft p{font-size:12px;color:#9E968E;}
+</style></head><body>
+<div class="wrap"><div class="card">
+  <div class="hdr"><div class="logo">Crown <em>&amp; Glow</em></div></div>
+  <div class="bar"></div>
+  <div class="body">
+    <h1 class="h1">Your login <em>code</em></h1>
+    <p class="p">Hi ${name.split(' ')[0]}, use this code to finish signing in:</p>
+    <center><div class="code">${code}</div></center>
+    <p class="note">This code expires in <strong>10 minutes</strong>. If you didn't try to log in, you can safely ignore this email — your account is still secure.</p>
   </div>
   <div class="ft"><p>Crown &amp; Glow · 456 Glow Avenue, Suite 200, Indianapolis, IN 46204</p></div>
 </div></div></body></html>`;
@@ -155,7 +235,7 @@ export class AuthService {
     const verifyUrl = `${authConfig.frontendUrl}/verify-email?token=${token}`;
     const html      = verificationEmailHtml(name, verifyUrl);
 
-    await sendAuthEmail(email, emailConfig.subjects.verification, html);
+    await sendAuthEmail(email, emailConfig.subjects.verification, html, "EMAIL_VERIFICATION", userId);
 
     console.log(`📧 Verification email sent to ${email}`);
     // The URL contains a live, usable verification token — never log it
@@ -360,6 +440,22 @@ export class AuthService {
       },
     });
 
+    // Look the user up here (rather than requiring every caller to pass
+    // email/name) so this stays correct no matter where generateOTP() is
+    // called from. This used to only console.log the code in dev and never
+    // actually send it — meaning any account with MFA enabled could never
+    // receive its login code in production and was permanently locked out.
+    const user = await prisma.user.findUnique({
+      where:  { id: userId },
+      select: { email: true, name: true },
+    });
+
+    if (user) {
+      await sendAuthEmail(user.email, emailConfig.subjects.mfaOtp, otpEmailHtml(user.name, code), "MFA_OTP", userId);
+    } else {
+      console.error(`⚠️  generateOTP() called for unknown user ${userId} — OTP not delivered`);
+    }
+
     // The OTP itself is a live login credential — never log it outside
     // development.
     if (process.env.NODE_ENV !== "production") {
@@ -431,7 +527,7 @@ export class AuthService {
     const html     = resetPasswordEmailHtml(user.name, resetUrl);
 
     // ✅ FIX 4 — was: hardcoded subject string
-    await sendAuthEmail(user.email, emailConfig.subjects.resetPassword, html);
+    await sendAuthEmail(user.email, emailConfig.subjects.resetPassword, html, "PASSWORD_RESET", user.id);
 
     // The URL contains a live, usable password-reset token — never log it
     // outside development.

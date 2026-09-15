@@ -28,9 +28,19 @@ export const createStaffSchema = z.object({
     .or(z.literal('')),
 
   isActive: z.boolean().default(true),
+
+  // Links this staff record to an existing User account (which is promoted
+  // to role=STAFF) so that user's login can be scoped to only this staff
+  // member's own appointments/change-requests. Omit for a staff member with
+  // no portal login of their own.
+  user_id: z.string().uuid("Invalid user ID format").optional(),
 });
 
-export const updateStaffSchema = createStaffSchema.partial();
+export const updateStaffSchema = createStaffSchema.partial().extend({
+  // Unlike create, update allows explicitly clearing the link (send
+  // user_id: null) as well as setting or leaving it untouched (omit it).
+  user_id: z.string().uuid("Invalid user ID format").nullable().optional(),
+});
 
 export type CreateStaffInput = z.infer<typeof createStaffSchema>;
 export type UpdateStaffInput = z.infer<typeof updateStaffSchema>;

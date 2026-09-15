@@ -1,7 +1,27 @@
 // middleware.ts — place at root of frontend project (same level as app/)
 // NOTE: Next.js middleware runs on the Edge and CANNOT read localStorage.
 // Token must be stored in a cookie for middleware to work.
-
+//
+// ⚠️  TRUST BOUNDARY — READ BEFORE RELYING ON THIS FOR ANYTHING SECURITY-
+// SENSITIVE (H10 in PRODUCTION_READINESS_AUDIT.md):
+// decodeJwt() below only base64-decodes the token payload — it does NOT
+// verify the JWT signature, because Edge middleware has no access to
+// JWT_SECRET (and verifying it here wouldn't be meaningfully safer even if
+// it did — Edge Middleware still isn't where authorization belongs). That
+// means the `role` this file reads is whatever the payload CLAIMS, not
+// something cryptographically proven. A hand-edited cookie with
+// `role: "ADMIN"` sails right past the checks below and into the /admin
+// route tree.
+//
+// This is fine ONLY because every route here is UI-shell routing —
+// deciding which page shell to render, nothing more. It is NOT, and must
+// never become, the thing that actually gates access to admin data or
+// actions. Every real admin endpoint re-verifies the JWT signature and role
+// server-side (see backend/src/middleware/auth.middleware.ts and
+// role.middleware.ts) — that's the actual authorization boundary. Treat
+// what happens in this file as decorative: it exists so a logged-out
+// visitor doesn't briefly see an admin page shell flash before data loads,
+// not to keep anyone out of anything real.
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 

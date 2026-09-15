@@ -65,6 +65,19 @@ export class UserService {
     return updated;
   }
 
+  // ── Admin: list accounts (to link one as staff, etc.) ───────────────────────
+  // Excludes ADMIN accounts — StaffService.assertLinkable() already refuses
+  // to link an admin as staff, so there's no reason to surface them here as
+  // candidates. No pagination: fine for a single-salon staff/customer list;
+  // revisit if this ever needs to scale past a few hundred accounts.
+  static async listAccounts() {
+    return prisma.user.findMany({
+      where: { role: { in: ["CUSTOMER", "STAFF"] } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, email: true, role: true },
+    });
+  }
+
   static async changePassword(userId: string, data: ChangePasswordInput) {
     const user = await prisma.user.findUnique({
       where: { id: userId },

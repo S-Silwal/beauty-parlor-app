@@ -17,7 +17,9 @@
     "db:seed": "ts-node src/utils/seed.ts",
     "db:reset": "npm run prisma:reset && npm run prisma:generate && npm run prisma:migrate && npm run db:seed",
     "lint": "eslint src --ext .ts",
-    "lint:fix": "eslint src --ext .ts --fix"
+    "lint:fix": "eslint src --ext .ts --fix",
+    "test": "jest --runInBand",
+    "audit": "npm audit --audit-level=high"
   },
   "prisma": {
     "seed": "ts-node src/utils/seed.ts"
@@ -65,6 +67,6 @@
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
+    "typescript": "6.0.3"
   }
 }

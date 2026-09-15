@@ -47,7 +47,7 @@ docker-compose down    # stop
 
 ### CI/CD
 
-GitHub Actions runs on push to `main`/`develop` and PRs to `main`. Pipeline: Prisma generate → TypeScript type-check → lint → build → verify output artifacts. Both backend (`dist/server.js`) and frontend (`.next/`) are verified.
+GitHub Actions runs on push to `main`/`develop` and PRs to `main`. Backend pipeline: Prisma generate → TypeScript type-check → lint → migrate + seed an ephemeral CI Postgres → **run the Jest/Supertest suite** → build → verify output artifacts. Frontend pipeline: type-check → lint → build → verify `.next/` output. A failing test now fails the build — it's not just a compile check.
 
 ## Architecture
 
@@ -94,6 +94,10 @@ After editing `schema.prisma`, always run `npm run prisma:generate` before `npm 
 **Appointment slots**: 9 AM–6:30 PM, 30-min increments. `getAvailableSlots()` filters out booked and overlapping slots.
 
 **Notifications**: `notifyBookingConfirmed()` sends email + SMS + schedules 24h QStash reminder, all via `Promise.allSettled()` so booking creation never blocks on notification failures. Results are logged to `NotificationLog`.
+
+**Staff scoping**: `Staff.user_id` (nullable, unique) links a Staff row to the User account that logs in as that staff member — link/unlink one via `POST`/`PATCH /api/staff` (admin-only `user_id` field), which also promotes/demotes that user's `role` to/from `STAFF`. `StaffService.resolveCallerStaffId()` turns a logged-in caller into `undefined` (ADMIN — unrestricted) or their own `staff.id` (STAFF — scoped), used by `GET /api/appointments/all`, `PATCH /api/appointments/:id/status`, and the change-request admin routes to restrict a STAFF caller to only appointments assigned to them. A `STAFF`-role account with no linked `Staff` row gets a 403, not an empty or unrestricted view.
+
+**Change-request vs. direct endpoints**: `DELETE /:id/cancel` and `PATCH /:id/reschedule` are the canonical, instant, customer-facing path outside the `CANCELLATION_CUTOFF_HOURS` window. The `/:id/request-edit` and `/:id/request-cancel` admin-approval flow is scoped to only what those can't do: an appointment inside the cutoff window (`isInsideCutoff()` in `appointment.service.ts`), or an edit that changes the service (reschedule only ever touches date/staff/notes) — outside the cutoff without a service change, those endpoints reject with a message pointing back to the direct one, so the two flows no longer silently overlap.
 
 ## Next.js Version Note
 

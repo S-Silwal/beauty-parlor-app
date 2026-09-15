@@ -15,6 +15,17 @@ export class StaffController {
     }
   }
 
+  // Role is already enforced by isAdmin middleware on this route. Includes
+  // the staff<->login linkage the public listing above withholds.
+  static async getAllStaffAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const staff = await StaffService.getAllForAdmin();
+      res.json({ success: true, staff });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // Role is already enforced by isAdmin middleware on this route.
   static async createStaff(req: AuthRequest, res: Response, next: NextFunction) {
     try {
@@ -35,7 +46,10 @@ export class StaffController {
     try {
       const { id } = req.params;
       const validatedData = updateStaffSchema.parse(req.body);
-      const staff = await StaffService.update(id, validatedData);
+      const staff = await StaffService.update(id, validatedData, {
+        userId: req.user!.userId,
+        role:   req.user!.role,
+      });
 
       res.json({ success: true, message: "Staff updated successfully", staff });
     } catch (error) {

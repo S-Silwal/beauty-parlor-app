@@ -2,7 +2,12 @@
 import { prisma } from "../config/database";
 import { AppointmentStatus, ChangeRequestType, Prisma } from "@prisma/client";
 import { AppError } from "../utils/AppError";
-import { assertSlotAvailable, runSerializable } from "./appointment.service";
+import {
+  assertSlotAvailable,
+  runSerializable,
+  isInsideCutoff,
+  SELF_SERVICE_CUTOFF_HOURS,
+} from "./appointment.service";
 import { emitBookingUpdated, emitChangeRequestCreated, emitChangeRequestResolved } from "../socket";
 import {
   notifyBookingCancelled,
@@ -42,6 +47,25 @@ export class ChangeRequestService {
       throw new AppError("Only upcoming (pending or confirmed) bookings can be edited", 409);
     }
 
+    // This flow exists only for what the direct PATCH /:id/reschedule
+    // endpoint can't do: (a) an appointment too close to its start time for
+    // self-service (see isInsideCutoff), where it needs an admin's manual
+    // OK, or (b) changing the service — reschedule only ever touches
+    // date/staff/notes. Outside the cutoff and without a service change,
+    // there's nothing here an admin approval adds — the customer should
+    // just reschedule it themselves instantly.
+    const changingService =
+      !!data.requested_service_id && data.requested_service_id !== appointment.service_id;
+    if (!isInsideCutoff(appointment.appointment_date) && !changingService) {
+      throw new AppError(
+        `This booking is still more than ${SELF_SERVICE_CUTOFF_HOURS} hour` +
+        `${SELF_SERVICE_CUTOFF_HOURS === 1 ? "" : "s"} away — reschedule the date, time or staff ` +
+        `yourself instantly instead of waiting for approval. (Changing the service still needs ` +
+        `approval regardless of timing.)`,
+        409
+      );
+    }
+
     // One live request at a time per booking — stops a customer from
     // stacking conflicting requests on the same appointment.
     const existingPending = await prisma.appointmentChangeRequest.findFirst({
@@ -59,7 +83,7 @@ export class ChangeRequestService {
       data.requested_staff_id !== undefined ? data.requested_staff_id : appointment.staff_id;
 
     let duration = appointment.duration;
-    if (data.requested_service_id && data.requested_service_id !== appointment.service_id) {
+    if (changingService) {
       const service = await prisma.service.findUnique({ where: { id: data.requested_service_id } });
       if (!service) throw new AppError("Service not found", 404);
       duration = service.duration;
@@ -106,6 +130,20 @@ export class ChangeRequestService {
       throw new AppError("Only upcoming (pending or confirmed) bookings can be cancelled", 409);
     }
 
+    // Outside the cutoff, DELETE /:id/cancel does this instantly with no
+    // approval needed — routing the same outcome through an admin here too
+    // would just be a slower, bypassable duplicate of that endpoint. This
+    // flow is for the one case self-service can't cover: too close to the
+    // start time to cancel directly.
+    if (!isInsideCutoff(appointment.appointment_date)) {
+      throw new AppError(
+        `This booking is still more than ${SELF_SERVICE_CUTOFF_HOURS} hour` +
+        `${SELF_SERVICE_CUTOFF_HOURS === 1 ? "" : "s"} away — cancel it yourself instantly instead ` +
+        `of waiting for approval.`,
+        409
+      );
+    }
+
     const existingPending = await prisma.appointmentChangeRequest.findFirst({
       where: { appointment_id: appointmentId, status: "PENDING" },
     });
@@ -138,21 +176,35 @@ export class ChangeRequestService {
   }
 
   // ── Admin: pending requests, oldest first ───────────────────────────────────
-  static async getPendingRequests() {
+  // A STAFF caller's `staffId` (from StaffService.resolveCallerStaffId) scopes
+  // this to only requests against their own assigned appointments — ADMIN
+  // passes undefined and sees everything, as before.
+  static async getPendingRequests(options?: { staffId?: string }) {
     return prisma.appointmentChangeRequest.findMany({
-      where: { status: "PENDING" },
+      where: {
+        status: "PENDING",
+        ...(options?.staffId && { appointment: { staff_id: options.staffId } }),
+      },
       orderBy: { created_at: "asc" },
       include: REQUEST_INCLUDE,
     });
   }
 
   // ── Admin: approve or decline a pending request ─────────────────────────────
-  static async resolve(requestId: string, decision: "APPROVED" | "DECLINED", declineReason?: string) {
+  static async resolve(
+    requestId: string,
+    decision: "APPROVED" | "DECLINED",
+    declineReason?: string,
+    callerStaffId?: string
+  ) {
     const request = await prisma.appointmentChangeRequest.findUnique({
       where: { id: requestId },
       include: { appointment: true },
     });
     if (!request) throw new AppError("Change request not found", 404);
+    if (callerStaffId && request.appointment.staff_id !== callerStaffId) {
+      throw new AppError("You can only resolve requests for appointments assigned to you", 403);
+    }
     if (request.status !== "PENDING") {
       throw new AppError("This request has already been resolved", 409);
     }

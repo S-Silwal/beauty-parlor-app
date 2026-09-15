@@ -16,6 +16,7 @@ export const emailConfig = {
     verification:   "✉️ Verify your Crown & Glow account",
     resetPassword:  "🔐 Reset your Crown & Glow password",
     bookingConfirm: "📅 Your Crown & Glow booking is confirmed",
+    mfaOtp:         "🔐 Your Crown & Glow login code",
   },
 };
 

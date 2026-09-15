@@ -59,7 +59,6 @@ const VALUES = [
 // rating stat is backed by real data (see fetchRatingStat below).
 const BASE_STATS = [
   { value: '12+', label: 'Years of Excellence' },
-  { value: '3,000+', label: 'Happy Clients' },
   { value: '15+', label: 'Expert Treatments' },
 ];
 

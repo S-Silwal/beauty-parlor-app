@@ -2,11 +2,17 @@ import request from 'supertest';
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import app from '../app';
 import { prisma } from '../config/database';
+import { cloudinary } from '../config/cloudinary';
 
 const ADMIN_EMAIL = 'gallery_test_admin@example.com';
 const CUSTOMER_EMAIL = 'gallery_test_customer@example.com';
 const PASSWORD = 'TestPass123!';
-const IMAGE_URL = `https://res.cloudinary.com/demo/image/upload/v1/beauty-parlor/gallery/test-${Date.now()}.jpg`;
+
+// A URL that merely LOOKS like a Cloudinary asset but was never actually
+// uploaded — saveImage() must now reject this (see H2 in the audit: it used
+// to persist whatever URL string was POSTed with no verification it was
+// really this account's asset).
+const FAKE_IMAGE_URL = `https://res.cloudinary.com/demo/image/upload/v1/beauty-parlor/gallery/does-not-exist-${Date.now()}.jpg`;
 
 const cloudinaryConfigured =
   !!process.env.CLOUDINARY_CLOUD_NAME &&
@@ -17,6 +23,8 @@ describe('Gallery API Tests', () => {
   let adminToken: string;
   let customerToken: string;
   let createdImageId: string;
+  let realUploadedUrl: string;
+  let realUploadedPublicId: string;
 
   beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email: { in: [ADMIN_EMAIL, CUSTOMER_EMAIL] } } });
@@ -35,6 +43,9 @@ describe('Gallery API Tests', () => {
   afterAll(async () => {
     if (createdImageId) {
       await prisma.galleryImage.deleteMany({ where: { id: createdImageId } });
+    }
+    if (realUploadedPublicId) {
+      await cloudinary.uploader.destroy(realUploadedPublicId).catch(() => {});
     }
     await prisma.user.deleteMany({ where: { email: { in: [ADMIN_EMAIL, CUSTOMER_EMAIL] } } });
   });
@@ -80,15 +91,44 @@ describe('Gallery API Tests', () => {
     expect(res.status).toBe(400);
   });
 
-  it('saves an image record as an admin', async () => {
+  // H2 fix: saveImage() now verifies the URL against Cloudinary's own
+  // record (existence, folder, format, size) before persisting it — a URL
+  // that merely looks right but was never actually uploaded must be
+  // rejected, not stored.
+  it('rejects saving a URL that was never actually uploaded to Cloudinary', async () => {
     const res = await request(app)
       .post('/api/gallery/save')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ url: IMAGE_URL, alt_text: 'Test image', category: 'interior' });
+      .send({ url: FAKE_IMAGE_URL, alt_text: 'Fake image', category: 'interior' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('saves an image record as an admin', async () => {
+    if (!cloudinaryConfigured) {
+      // Nothing to verify a URL against without real credentials — the
+      // rejection test above already covers the code path that matters
+      // here. Skip rather than assert against a fake asset.
+      return;
+    }
+
+    // Upload a real, tiny asset so there's something genuine for
+    // saveImage()'s Cloudinary verification step to find.
+    const uploadResult = await cloudinary.uploader.upload(
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      { folder: 'beauty-parlor/gallery' }
+    );
+    realUploadedUrl = uploadResult.secure_url;
+    realUploadedPublicId = uploadResult.public_id;
+
+    const res = await request(app)
+      .post('/api/gallery/save')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ url: realUploadedUrl, alt_text: 'Test image', category: 'interior' });
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
-    expect(res.body.image.url).toBe(IMAGE_URL);
+    expect(res.body.image.url).toBe(realUploadedUrl);
     createdImageId = res.body.image.id;
 
     const list = await request(app).get('/api/gallery');
@@ -104,6 +144,8 @@ describe('Gallery API Tests', () => {
   });
 
   it('soft-deletes an image as an admin', async () => {
+    if (!cloudinaryConfigured) return; // needs the real record from the upload test above
+
     const res = await request(app)
       .delete(`/api/gallery/${createdImageId}`)
       .set('Authorization', `Bearer ${adminToken}`);

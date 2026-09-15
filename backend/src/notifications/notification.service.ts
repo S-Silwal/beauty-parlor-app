@@ -232,6 +232,24 @@ export async function notifyReminder24h(appointmentId: string, scheduledForDate?
     return;
   }
 
+  // QStash delivers at-least-once (retries: 3 — see scheduler.service.ts),
+  // so this handler can legitimately be invoked more than once for the same
+  // scheduled reminder (e.g. a slow-but-ultimately-successful response is
+  // enough to trigger a retry). Check NotificationLog per channel — rather
+  // than skip the whole call — so if email already went out but SMS failed
+  // on a previous attempt, a retry still gets the customer their text
+  // instead of silently dropping it because *something* was already sent.
+  const [emailAlreadySent, smsAlreadySent] = await Promise.all([
+    prisma.notificationLog.findFirst({
+      where: { appointment_id: appointmentId, event: 'REMINDER_24H', type: 'EMAIL', status: 'SENT' },
+      select: { id: true },
+    }),
+    prisma.notificationLog.findFirst({
+      where: { appointment_id: appointmentId, event: 'REMINDER_24H', type: 'SMS', status: 'SENT' },
+      select: { id: true },
+    }),
+  ]);
+
   const emailData = {
     customerName: appointment.user.name,
     customerEmail: appointment.user.email,
@@ -251,8 +269,19 @@ export async function notifyReminder24h(appointmentId: string, scheduledForDate?
     phone: appointment.user.phone ?? '',
   };
 
+  if (emailAlreadySent) {
+    console.log(`⏭️  Skipping duplicate 24h reminder email for ${appointmentId} — already sent`);
+  }
+  if (smsAlreadySent) {
+    console.log(`⏭️  Skipping duplicate 24h reminder SMS for ${appointmentId} — already sent`);
+  }
+
   await Promise.allSettled([
-    sendEmail({ event: 'REMINDER_24H', data: emailData, userId: appointment.user_id, appointmentId }),
-    sendSms({ event: 'REMINDER_24H', data: smsData, userId: appointment.user_id, appointmentId }),
+    ...(emailAlreadySent
+      ? []
+      : [sendEmail({ event: 'REMINDER_24H', data: emailData, userId: appointment.user_id, appointmentId })]),
+    ...(smsAlreadySent
+      ? []
+      : [sendSms({ event: 'REMINDER_24H', data: smsData, userId: appointment.user_id, appointmentId })]),
   ]);
 }

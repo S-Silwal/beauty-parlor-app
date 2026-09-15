@@ -40,6 +40,8 @@ model User {
   verificationTokens EmailVerificationToken[]
   otpCodes         OtpCode[]
   changeRequests   AppointmentChangeRequest[]
+  staffProfile     Staff?
+  auditLogs        AdminAuditLog[]
 
   @@map("users")
 }
@@ -127,6 +129,14 @@ model Staff {
   bio            String?
   avatar         String?
   isActive       Boolean @default(true)
+
+  // The User account that logs in as this staff member (role=STAFF), if
+  // they have portal access at all — a Staff row can exist purely as a
+  // bookable name with no login. Nullable + unique: at most one login per
+  // staff record. See StaffService.resolveCallerStaffId() for how this is
+  // used to scope a logged-in staff user to only their own appointments.
+  user_id String? @unique
+  user    User?   @relation(fields: [user_id], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -271,6 +281,32 @@ model StaffAvailability {
   @@map("staff_availability")
 }
 
+// Records who changed what on the admin-mutable entities that matter most
+// (appointment status/payment, service price/details, staff records) — see
+// "No admin audit log for price/status/customer-data changes" in the 30-day
+// hardening audit. `changes` stores a small before/after diff as JSON;
+// `actor_user_id` is intentionally nullable + SetNull (not Cascade) so
+// deleting a user later doesn't erase the historical record that they made
+// a change — the log entry just loses its live link back to that account.
+model AdminAuditLog {
+  id             String  @id @default(uuid())
+  actor_user_id  String?
+  actor_role     String
+  action         String // e.g. "APPOINTMENT_STATUS_UPDATE", "SERVICE_UPDATE", "STAFF_UPDATE"
+  entity_type    String // "Appointment" | "Service" | "Staff"
+  entity_id      String
+  changes        Json // { field: { from, to }, ... }
+
+  created_at DateTime @default(now())
+
+  actor User? @relation(fields: [actor_user_id], references: [id], onDelete: SetNull)
+
+  @@index([entity_type, entity_id])
+  @@index([actor_user_id])
+  @@index([created_at])
+  @@map("admin_audit_logs")
+}
+
 model Notification {
   id         String   @id @default(uuid())
   user_id    String
@@ -322,9 +358,11 @@ enum Role {
 enum AppointmentStatus {
   PENDING
   CONFIRMED
+  CHECKED_IN
   COMPLETED
   CANCELLED
   RESCHEDULED
+  NO_SHOW
 }
 
 enum PaymentStatus {

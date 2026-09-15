@@ -10,6 +10,9 @@ const router = Router();
 router.get("/", StaffController.getAllStaff);
 
 // ====================== ADMIN ONLY ROUTES ======================
+// Includes the staff<->login linkage the public GET "/" above withholds —
+// used by the admin Staff Management UI.
+router.get   ("/admin", authenticate, isAdmin, StaffController.getAllStaffAdmin);
 router.post  ("/",    authenticate, isAdmin, StaffController.createStaff);
 router.patch ("/:id", authenticate, isAdmin, StaffController.updateStaff);
 router.delete("/:id", authenticate, isAdmin, StaffController.deleteStaff); // ✅ uncommented

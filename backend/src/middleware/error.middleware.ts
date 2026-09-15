@@ -1,6 +1,7 @@
 // src/middleware/error.middleware.ts
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
+import { logger } from "../utils/logger";
 
 export interface AppError extends Error {
   statusCode?: number;
@@ -62,15 +63,25 @@ export const errorHandler = (
   const statusCode = error.statusCode || 500;
   const status = error.status || "error";
 
-  if (process.env.NODE_ENV === "development") {
-    console.error(`[ERROR] ${req.method} ${req.url}`);
-    console.error(err);
-  }
+  // Structured + correlated to req.requestId (see requestContext.middleware
+  // and utils/logger.ts) — this is what lets a 500 here be tied back to
+  // whatever background job (e.g. a notification send) it also broke,
+  // instead of two unrelated-looking console lines.
+  logger.error("request failed", {
+    requestId: req.requestId,
+    method: req.method,
+    path: req.originalUrl,
+    statusCode,
+    errorName: err.name,
+    errorMessage: error.message,
+    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+  });
 
   res.status(statusCode).json({
     success: false,
     status,
     message: error.message,
+    requestId: req.requestId,
     ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
   });
 };
