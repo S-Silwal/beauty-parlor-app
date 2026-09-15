@@ -93,7 +93,13 @@ describe('Change-request eligibility', () => {
   });
 
   it('allows a service-change edit request regardless of how far out the booking is', async () => {
-    const appt = await createAppointment(72); // outside the cutoff — reschedule can't do this anyway
+    // A distinct offset from the other 72h-out fixtures above — those are
+    // also staff_id: null, and assertSlotAvailable pools all unassigned
+    // bookings into one shared-slot check, so reusing 72 here would make
+    // this request collide with their still-CONFIRMED leftovers and 409
+    // for an unrelated reason (slot conflict, not cutoff/service-change
+    // eligibility, which is what this test actually verifies).
+    const appt = await createAppointment(80); // outside the cutoff — reschedule can't do this anyway
     const res = await request(app)
       .post(`/api/appointments/${appt}/request-edit`)
       .set('Authorization', `Bearer ${token}`)

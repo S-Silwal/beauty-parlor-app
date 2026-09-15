@@ -353,8 +353,12 @@ export class AuthService {
       { expiresIn: authConfig.accessTokenExpiry }
     );
 
+    // jti makes each token byte-distinct even when two logins for the same
+    // user land in the same second — without it, `{userId}` + a second-
+    // granularity `iat`/`exp` produces an identical JWT string, and the
+    // second insert 409s on refresh_tokens.token's unique constraint.
     const refreshToken = jwt.sign(
-      { userId: user.id },
+      { userId: user.id, jti: crypto.randomUUID() },
       authConfig.refreshSecret,
       { expiresIn: authConfig.refreshTokenExpiry }
     );
@@ -397,7 +401,7 @@ export class AuthService {
     );
 
     const newRefreshToken = jwt.sign(
-      { userId: storedToken.user.id },
+      { userId: storedToken.user.id, jti: crypto.randomUUID() },
       authConfig.refreshSecret,
       { expiresIn: authConfig.refreshTokenExpiry }
     );

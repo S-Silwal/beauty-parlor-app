@@ -2,9 +2,10 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-// Local/testing override only — leave AUTH_RATE_LIMIT_MAX unset in any
-// deployed environment so the real 10/15min limit applies.
-const authMax = process.env.AUTH_RATE_LIMIT_MAX
+// Local dev override only — never applied under `NODE_ENV=test`, so the
+// automated rate-limit test always exercises the real 10/15min limit
+// regardless of what a developer has set locally for manual testing.
+const authMax = process.env.AUTH_RATE_LIMIT_MAX && process.env.NODE_ENV !== "test"
   ? parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10)
   : 10;
 

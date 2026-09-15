@@ -31,11 +31,7 @@ import { errorHandler } from "./middleware/error.middleware";
 import { requestContext } from "./middleware/requestContext.middleware";
 import {
   apiRateLimiter,
-  authRateLimiter,
-  createAccountLimiter,
   appointmentBookingLimiter,
-  forgotPasswordLimiter,
-  resetPasswordLimiter,
 } from "./middleware/ratelimitter.middleware";
 
 dotenv.config();
@@ -94,12 +90,12 @@ app.use(
 app.use(cookieParser());
 
 // ====================== RATE LIMITING ======================
+// General limiter applies everywhere; auth/login/register/reset-password
+// each carry their own specific limiter at the route level (see
+// auth.routes.ts) — applying it a second time here would double-count
+// every request against that limiter's budget.
 app.use(apiRateLimiter);
 
-app.use("/api/auth/login", authRateLimiter);
-app.use("/api/auth/register", createAccountLimiter);
-app.use("/api/auth/forgot-password", forgotPasswordLimiter);
-app.use("/api/auth/reset-password", resetPasswordLimiter);
 app.use("/api/appointments/book", appointmentBookingLimiter);
 
 // ====================== ROUTES ======================

@@ -21,8 +21,21 @@ import {
   ChangeRequestDeclinedEmailData,
 } from '../templates/change-request-declined';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM   = process.env.RESEND_FROM_EMAIL || 'Crown & Glow <hello@crownandglow.com>';
+// Lazily construct the Resend client instead of at module load time — tests
+// (and any other code path that merely imports this module without ever
+// sending an email) shouldn't need a real RESEND_API_KEY just to import it.
+let resendInstance: Resend | null = null;
+function getResend(): Resend {
+  if (!resendInstance) {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error('RESEND_API_KEY environment variable is not set');
+    }
+    resendInstance = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resendInstance;
+}
+
+const FROM = process.env.RESEND_FROM_EMAIL || 'Crown & Glow <hello@crownandglow.com>';
 
 export type EmailEvent =
   | 'BOOKING_CONFIRMED'
@@ -109,7 +122,7 @@ export async function sendEmail({
   });
 
   try {
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from:    FROM,
       to:      recipient,
       subject: template.subject,

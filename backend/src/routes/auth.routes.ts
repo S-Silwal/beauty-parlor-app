@@ -5,6 +5,7 @@ import { authenticate } from "../middleware/auth.middleware";
 import {
   authRateLimiter,
   createAccountLimiter,
+  forgotPasswordLimiter,
   resetPasswordLimiter,
 } from "../middleware/ratelimitter.middleware";
 
@@ -21,7 +22,7 @@ router.get ("/verify-email",          AuthController.verifyEmail);         // GE
 router.post("/resend-verification",   authRateLimiter, AuthController.resendVerification);
 
 // ====================== PASSWORD RESET ======================
-router.post("/forgot-password",       authRateLimiter,       AuthController.forgotPassword);
+router.post("/forgot-password",       forgotPasswordLimiter, AuthController.forgotPassword);
 router.post("/reset-password",        resetPasswordLimiter,  AuthController.resetPassword);
 
 // ====================== OTP / MFA ======================
