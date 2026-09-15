@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 
 // ── Slideshow images — beauty treatments ────────────────────────────────────
 const SLIDES = [
@@ -64,8 +65,8 @@ export default function LoginPage() {
     try {
       await login(email, password);
       router.push('/');
-    } catch (err: any) {
-      setError(err.message || 'Invalid email or password');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid email or password');
     } finally {
       setLoading(false);
     }
@@ -99,8 +100,6 @@ export default function LoginPage() {
 
         /* Each slide image */
         .lg-slide {
-          position: absolute; inset: 0;
-          width: 100%; height: 100%;
           object-fit: cover;
           opacity: 0;
           transition: opacity 0.7s ease-in-out;
@@ -348,10 +347,13 @@ export default function LoginPage() {
 
           {/* All slide images stacked, crossfade via opacity */}
           {SLIDES.map((s, i) => (
-            <img
+            <Image
               key={s.url}
               src={s.url}
               alt={s.label}
+              fill
+              sizes="50vw"
+              priority={i === 0}
               className={`lg-slide ${
                 i === slide && !fading ? 'visible' :
                 i === prevSlide && fading ? 'visible' :
@@ -485,7 +487,7 @@ export default function LoginPage() {
             </div>
 
             <div className="lg-register-row" suppressHydrationWarning>
-              Don't have an account?&nbsp;
+              Don&apos;t have an account?&nbsp;
               <Link href="/register" className="lg-register-link">
                 Create one →
               </Link>

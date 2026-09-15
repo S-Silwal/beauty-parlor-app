@@ -16,12 +16,24 @@ function localTodayStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+interface BookableService {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+}
+
+interface BookableStaff {
+  id: string;
+  name: string;
+}
+
 export default function BookingPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  const [services, setServices]               = useState<any[]>([]);
-  const [staff, setStaff]                     = useState<any[]>([]);
+  const [services, setServices]               = useState<BookableService[]>([]);
+  const [staff, setStaff]                     = useState<BookableStaff[]>([]);
   const [selectedService, setSelectedService] = useState('');
   const [selectedStaff, setSelectedStaff]     = useState('');
   const [selectedDate, setSelectedDate]       = useState('');
@@ -119,9 +131,9 @@ export default function BookingPage() {
       } else {
         setError(res.message || 'Booking failed');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Booking Error:', err);
-      setError(err.message || 'Booking failed. Please try again.');
+      setError(err instanceof Error ? err.message : 'Booking failed. Please try again.');
     } finally {
       setBookingLoading(false);
     }

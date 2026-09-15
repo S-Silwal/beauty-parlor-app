@@ -2,6 +2,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 const TEAM = [
   {
@@ -139,10 +140,11 @@ export default function AboutPage() {
         }
         .ab-story-img-wrap {
           position: relative;
+          height: 520px;
         }
         .ab-story-img {
-          width: 100%; height: 520px; object-fit: cover;
-          border-radius: 4px; display: block;
+          object-fit: cover;
+          border-radius: 4px;
         }
         .ab-story-accent {
           position: absolute;
@@ -266,9 +268,9 @@ export default function AboutPage() {
           box-shadow: 0 20px 56px rgba(44,40,37,.1);
           transform: translateY(-4px); border-color: var(--gold-lt);
         }
-        .ab-member-img-wrap { height: 280px; overflow: hidden; }
+        .ab-member-img-wrap { position: relative; height: 280px; overflow: hidden; }
         .ab-member-img {
-          width: 100%; height: 100%; object-fit: cover; display: block;
+          object-fit: cover;
           transition: transform .5s ease;
         }
         .ab-member:hover .ab-member-img { transform: scale(1.05); }
@@ -328,7 +330,7 @@ export default function AboutPage() {
         /* Responsive */
         @media (max-width: 900px) {
           .ab-story { grid-template-columns: 1fr; gap: 40px; padding: 72px 0; }
-          .ab-story-img { height: 360px; }
+          .ab-story-img-wrap { height: 360px; }
           .ab-story-accent { display: none; }
           .ab-stats-grid { grid-template-columns: repeat(2, 1fr); gap: 32px; }
           .ab-values-grid { grid-template-columns: 1fr; }
@@ -361,9 +363,11 @@ export default function AboutPage() {
           <div className="ab-container">
             <div className="ab-story">
               <div className="ab-story-img-wrap">
-                <img
+                <Image
                   src="https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800&q=80"
                   alt="Crown & Glow Salon"
+                  fill
+                  sizes="(max-width: 900px) 100vw, 50vw"
                   className="ab-story-img"
                 />
                 <div className="ab-story-accent" />
@@ -435,11 +439,12 @@ export default function AboutPage() {
               {TEAM.map(m => (
                 <div key={m.name} className="ab-member">
                   <div className="ab-member-img-wrap">
-                    <img
+                    <Image
                       src={m.img}
                       alt={m.name}
+                      fill
+                      sizes="(max-width: 700px) 50vw, 25vw"
                       className="ab-member-img"
-                      loading="lazy"
                     />
                   </div>
                   <div className="ab-member-body">

@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import PasswordStrengthChecker, { isPasswordValid } from '../../components/PasswordStrengthChecker';
 import { api } from '@/lib/api';
 
@@ -105,8 +106,8 @@ export default function RegisterPage() {
       );
       if (!data.success) throw new Error(data.message || 'Registration failed');
       setDone(true);
-    } catch (err: any) {
-      setError(err.message || 'Registration failed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -119,7 +120,7 @@ export default function RegisterPage() {
 
         .rg{min-height:100vh;display:grid;grid-template-columns:1fr 1fr;font-family:'Jost',sans-serif;}
         .rg-visual{position:relative;overflow:hidden;background:#2C2825;}
-        .rg-img{width:100%;height:100%;object-fit:cover;display:block;opacity:.7;}
+        .rg-img{object-fit:cover;opacity:.7;}
         .rg-overlay{position:absolute;inset:0;background:linear-gradient(160deg,rgba(26,21,16,.6) 0%,rgba(184,154,106,.12) 100%);}
         .rg-vbody{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:52px 56px;}
         .rg-logo{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:500;color:#F7F3EE;}
@@ -196,7 +197,7 @@ export default function RegisterPage() {
 
         {/* ── Left visual ── */}
         <div className="rg-visual">
-          <img src="https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1200&q=85" alt="Crown & Glow" className="rg-img"/>
+          <Image src="https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1200&q=85" alt="Crown & Glow" fill sizes="(max-width: 900px) 100vw, 45vw" className="rg-img"/>
           <div className="rg-overlay"/>
           <div className="rg-vbody">
             <div className="rg-logo">Crown <em>&amp; Glow</em></div>
@@ -221,14 +222,14 @@ export default function RegisterPage() {
                 </div>
                 <h1 className="rg-st">Check your <em>email!</em></h1>
                 <p className="rg-sp">
-                  We've sent a verification link to<br/>
+                  We&apos;ve sent a verification link to<br/>
                   <strong style={{color:'#2C2825'}}>{formData.email}</strong><br/><br/>
                   Click the link to activate your account.<br/>
                   It expires in <strong>24 hours</strong>.
                 </p>
                 <Link href="/login" className="rg-sb">Go to Login</Link>
                 <p style={{marginTop:18,fontSize:13,color:'#9E968E'}}>
-                  Didn't receive it?{' '}
+                  Didn&apos;t receive it?{' '}
                   <button
                     onClick={async () => {
                       await fetch(

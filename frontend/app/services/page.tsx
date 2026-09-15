@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { api } from '@/lib/api';
 
 interface Service {
@@ -207,7 +208,7 @@ export default function ServicesPage() {
           background: linear-gradient(to bottom, transparent 50%, rgba(44,40,37,.25) 100%);
         }
         .sv-img {
-          width: 100%; height: 100%; object-fit: cover; display: block;
+          object-fit: cover;
           transition: transform .5s ease;
         }
         .sv-card:hover .sv-img { transform: scale(1.06); }
@@ -360,11 +361,12 @@ export default function ServicesPage() {
               {isSignature(service) && <span className="sv-badge">Signature</span>}
               <div className="sv-img-wrap">
                 <div className="sv-img-overlay" />
-                <img
+                <Image
                   src={service.image || getImage(service.name, service.category)}
                   alt={service.name}
+                  fill
+                  sizes="(max-width: 900px) 100vw, (max-width: 1200px) 50vw, 33vw"
                   className="sv-img"
-                  loading="lazy"
                   onError={e => { (e.target as HTMLImageElement).src = FALLBACK; }}
                 />
               </div>

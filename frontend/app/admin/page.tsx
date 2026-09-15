@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -499,8 +500,8 @@ export default function AdminPanel() {
         closeServiceForm();
         fetchServices();
       } else showToast(data.message || `Failed to ${isEdit ? 'update' : 'add'} service`, 'error');
-    } catch (err: any) {
-      showToast(err.message || `Failed to ${isEdit ? 'update' : 'add'} service`, 'error');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'add'} service`, 'error');
     } finally {
       setServiceLoading(false); setServiceUploading(false); setServiceUploadProgress(0);
     }
@@ -537,7 +538,7 @@ export default function AdminPanel() {
       const sigRes  = await fetch(`${API}/api/gallery/signed-url`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
       const sigData = await sigRes.json();
       if (!sigData.success) throw new Error('Failed to get upload signature');
-      const { signature, timestamp, apiKey, cloudName, folder, allowedFormats, uploadUrl } = sigData;
+      const { signature, timestamp, apiKey, folder, allowedFormats, uploadUrl } = sigData;
       setUploadProgress(20);
       const formData = new FormData();
       formData.append('file', selectedFile);
@@ -566,7 +567,7 @@ export default function AdminPanel() {
       setGalleryForm({ alt_text: '', category: 'brows_lashes' });
       if (fileInputRef.current) fileInputRef.current.value = '';
       fetchGallery();
-    } catch (err: any) { showToast(err.message || 'Upload failed', 'error'); }
+    } catch (err) { showToast(err instanceof Error ? err.message : 'Upload failed', 'error'); }
     finally { setGalleryUploading(false); setUploadProgress(0); }
   };
 
@@ -666,8 +667,8 @@ export default function AdminPanel() {
         .ap-add-btn:hover{background:#B89A6A;}
         .ap-staff-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px;}
         .ap-staff-card{background:#fff;border:1px solid #EDE6DC;border-radius:6px;padding:22px 24px;}
-        .ap-staff-thumb{width:100%;aspect-ratio:16/10;border-radius:4px;overflow:hidden;margin-bottom:16px;background:#EDE6DC;}
-        .ap-staff-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+        .ap-staff-thumb{position:relative;width:100%;aspect-ratio:16/10;border-radius:4px;overflow:hidden;margin-bottom:16px;background:#EDE6DC;}
+        .ap-staff-thumb img{object-fit:cover;}
         .ap-staff-name{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:500;color:#2C2825;margin:0 0 4px;}
         .ap-staff-spec{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#B89A6A;margin-bottom:12px;}
         .ap-staff-info{font-size:13px;font-weight:300;color:#9E968E;line-height:1.7;}
@@ -697,7 +698,7 @@ export default function AdminPanel() {
         .ap-upload-btn:disabled{opacity:.5;cursor:not-allowed;}
         .ap-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;}
         .ap-gallery-item{position:relative;border-radius:6px;overflow:hidden;border:1px solid #EDE6DC;background:#EDE6DC;aspect-ratio:4/3;}
-        .ap-gallery-img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .3s;}
+        .ap-gallery-img{object-fit:cover;transition:transform .3s;}
         .ap-gallery-item:hover .ap-gallery-img{transform:scale(1.04);}
         .ap-gallery-overlay{position:absolute;inset:0;background:rgba(44,40,37,0);transition:background .2s;display:flex;flex-direction:column;justify-content:space-between;padding:10px;}
         .ap-gallery-item:hover .ap-gallery-overlay{background:rgba(44,40,37,.55);}
@@ -792,7 +793,7 @@ export default function AdminPanel() {
             <>
               <div className="ap-greeting">
                 <h1>{greeting}, <em>{user.name.split(' ')[0]}.</em></h1>
-                <p>Here's what's happening at Crown &amp; Glow today.</p>
+                <p>Here&apos;s what&apos;s happening at Crown &amp; Glow today.</p>
               </div>
               <div className="ap-stats">
                 {[
@@ -1012,7 +1013,7 @@ export default function AdminPanel() {
                               </>
                             )}
                             {req.customer_note && (
-                              <p style={{ fontSize:12, color:'#6B635A', fontStyle:'italic', marginTop:8 }}>"{req.customer_note}"</p>
+                              <p style={{ fontSize:12, color:'#6B635A', fontStyle:'italic', marginTop:8 }}>&quot;{req.customer_note}&quot;</p>
                             )}
                           </div>
                         </div>
@@ -1132,7 +1133,7 @@ export default function AdminPanel() {
                     <div key={sv.id} className="ap-staff-card">
                       {sv.image && (
                         <div className="ap-staff-thumb">
-                          <img src={sv.image} alt={sv.name} />
+                          <Image src={sv.image} alt={sv.name} fill sizes="(max-width: 900px) 100vw, 33vw" />
                         </div>
                       )}
                       <h3 className="ap-staff-name">{sv.name}</h3>
@@ -1169,6 +1170,7 @@ export default function AdminPanel() {
                     <div className="ap-drop-zone" onClick={() => fileInputRef.current?.click()}>
                       <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileSelect} style={{ display:'none' }}/>
                       {previewUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- local blob: object URL, not an optimizable remote image
                         <img src={previewUrl} alt="Preview" className="ap-preview"/>
                       ) : (
                         <>
@@ -1218,7 +1220,7 @@ export default function AdminPanel() {
                     <div className="ap-gallery-grid">
                       {filteredGallery.map(img => (
                         <div key={img.id} className="ap-gallery-item">
-                          <img src={img.url} alt={img.alt_text||'Gallery'} className="ap-gallery-img" loading="lazy"/>
+                          <Image src={img.url} alt={img.alt_text||'Gallery'} fill sizes="(max-width: 900px) 50vw, 25vw" className="ap-gallery-img"/>
                           <div className="ap-gallery-overlay">
                             <span className="ap-gallery-cat">{GALLERY_CATEGORIES.find(c => c.value===img.category)?.label || img.category}</span>
                             <button className="ap-gallery-del" onClick={() => handleDeleteImage(img.id)}>Remove</button>
@@ -1327,6 +1329,7 @@ export default function AdminPanel() {
                 <div className="ap-drop-zone" onClick={() => serviceFileInputRef.current?.click()}>
                   <input ref={serviceFileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleServiceFileSelect} style={{ display:'none' }}/>
                   {servicePreviewUrl || serviceForm.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- may be a local blob: preview, not always an optimizable remote image
                     <img src={servicePreviewUrl || serviceForm.image} alt="Preview" className="ap-preview"/>
                   ) : (
                     <>

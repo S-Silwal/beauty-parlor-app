@@ -67,6 +67,16 @@ function deltaMeta(current: number, previous: number | null) {
   return { show: true, dir, text: (dir === 'up' ? '▲ +' : '▼ -') + Math.abs(delta).toFixed(1) + '%', className: 'rv-delta ' + dir };
 }
 
+function buildBars(items: { revenue: number; hasData: boolean; isToday?: boolean; label: string; bookings?: number }[], everyNth = 1) {
+  const max = Math.max(...items.map(i => i.revenue), 1);
+  return items.map((it, i) => {
+    const ghost = it.hasData === false;
+    const heightPct = ghost ? 8 : Math.max((it.revenue / max) * 100, it.revenue > 0 ? 3 : 1.5);
+    const tooltip = ghost ? (it.label + ': no data yet') : (it.label + ': $' + fmtMoney(it.revenue) + (it.bookings !== undefined ? ' · ' + it.bookings + ' bookings' : ''));
+    return { key: 'b' + i, heightPct, ghost, isToday: !!it.isToday, tooltip, showLabel: i % everyNth === 0 || i === items.length - 1, axisLabel: it.label };
+  });
+}
+
 // ====================== Page ======================
 
 export default function RevenuePage() {
@@ -75,34 +85,21 @@ export default function RevenuePage() {
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [live, setLive] = useState(false);
+  // Lazy-initialized from the socket singleton's current state, rather than
+  // synchronously set from the effect below, so mounting when already
+  // connected doesn't trigger an extra cascading render.
+  const [live, setLive] = useState(() => initSocket().connected);
   const [tab, setTab] = useState<Tab>('daily');
   const [dailyOffset, setDailyOffset] = useState(0);
   const [weeklyYear, setWeeklyYear] = useState(new Date().getFullYear());
   const [weeklyMonth, setWeeklyMonth] = useState(new Date().getMonth());
   const [monthlyYear, setMonthlyYear] = useState(new Date().getFullYear());
-  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
     if (!user) { router.push('/login'); return; }
     if (!isAdmin) { router.push('/dashboard'); }
   }, [user, isAdmin, authLoading, router]);
-
-  const fetchAppointments = useCallback(async () => {
-    try {
-      const token = api.getToken();
-      const res = await fetch(`${API}/api/appointments/all`, {
-        headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
-      });
-      const data = await res.json();
-      if (data.success) setAppointments(data.appointments || []);
-    } catch (err) {
-      console.error('Failed to fetch appointments', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   // Upsert a single appointment coming off the socket rather than
   // refetching the whole list — a Confirmed → Completed transition (or any
@@ -120,14 +117,32 @@ export default function RevenuePage() {
 
   useEffect(() => {
     if (!user || !isAdmin) return;
-    fetchAppointments();
+
+    // Guards the fetch's continuation against setting state after this
+    // effect has already been cleaned up (e.g. a fast unmount, or React's
+    // dev-mode double-invoke) — the documented-safe shape for fetching
+    // inside an effect (https://react.dev/learn/you-might-not-need-an-effect).
+    let ignore = false;
+    (async () => {
+      try {
+        const token = api.getToken();
+        const res = await fetch(`${API}/api/appointments/all`, {
+          headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
+        });
+        const data = await res.json();
+        if (!ignore && data.success) setAppointments(data.appointments || []);
+      } catch (err) {
+        console.error('Failed to fetch appointments', err);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    })();
 
     const socket = initSocket();
     const handleConnect = () => setLive(true);
     const handleDisconnect = () => setLive(false);
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
-    if (socket.connected) setLive(true);
 
     // Both events carry the full updated appointment (service, staff, user,
     // status, payment_status, total_price included) straight from the
@@ -136,12 +151,13 @@ export default function RevenuePage() {
     socket.on('bookingUpdated', upsertAppointment);
 
     return () => {
+      ignore = true;
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
       socket.off('bookingCreated', upsertAppointment);
       socket.off('bookingUpdated', upsertAppointment);
     };
-  }, [user, isAdmin, fetchAppointments, upsertAppointment]);
+  }, [user, isAdmin, upsertAppointment]);
 
   const today = useMemo(() => startOfDay(new Date()), []);
   const currentYear = today.getFullYear();
@@ -182,20 +198,20 @@ export default function RevenuePage() {
 
   // Same-period-last-year / same-days-last-month comparisons, filtered directly
   // off real dates rather than estimated — accurate no matter how sparse the data is.
-  const sumUpToYearDay = (year: number, monthLimit: number, dayLimit: number) => summarize(
+  const sumUpToYearDay = useCallback((year: number, monthLimit: number, dayLimit: number) => summarize(
     paidAppointments.filter(a => {
       const d = new Date(a.appointment_date);
       if (d.getFullYear() !== year) return false;
       if (d.getMonth() < monthLimit) return true;
       return d.getMonth() === monthLimit && d.getDate() <= dayLimit;
     })
-  );
-  const sumMonthUpToDay = (year: number, month: number, dayLimit: number) => summarize(
+  ), [paidAppointments]);
+  const sumMonthUpToDay = useCallback((year: number, month: number, dayLimit: number) => summarize(
     paidAppointments.filter(a => {
       const d = new Date(a.appointment_date);
       return d.getFullYear() === year && d.getMonth() === month && d.getDate() <= dayLimit;
     })
-  );
+  ), [paidAppointments]);
 
   // ---------------- Daily ----------------
 
@@ -259,7 +275,7 @@ export default function RevenuePage() {
       prevTotal = prevList.length ? summarize(prevList).revenue : null;
     }
     return { weeks, total, prevTotal, monthLabel, isPartial: weeklyMonthIsCurrent };
-  }, [byYearMonth, weeklyYear, weeklyMonth, weeklyMonthIsFuture, weeklyMonthIsCurrent, today]);
+  }, [byYearMonth, weeklyYear, weeklyMonth, weeklyMonthIsFuture, weeklyMonthIsCurrent, today, sumMonthUpToDay]);
 
   // ---------------- Monthly ----------------
 
@@ -295,7 +311,7 @@ export default function RevenuePage() {
     });
 
     return { rows, total, current, prior, isPartialYear, rangeLabel: isPartialYear ? ('Jan – ' + monthName(currentMonth, true) + ' ' + monthlyYear + ' (Year to Date)') : ('Jan – Dec ' + monthlyYear) };
-  }, [byYearMonth, monthlyYear, currentYear, currentMonth, today]);
+  }, [byYearMonth, monthlyYear, currentYear, currentMonth, today, sumUpToYearDay, sumMonthUpToDay]);
 
   // ---------------- Yearly ----------------
 
@@ -320,71 +336,7 @@ export default function RevenuePage() {
       cmp = last.isPartial ? sumUpToYearDay(prior.year, currentMonth, today.getDate()).revenue : prior.revenue;
     }
     return { rows, allTotal, cmp, rangeLabel: 'All-time · ' + list[0] + '–' + list[list.length - 1] };
-  }, [paidAppointments, currentYear, currentMonth, today]);
-
-  // ---------------- Shared chart/breakdown builder ----------------
-
-  function buildBars(items: { revenue: number; hasData: boolean; isToday?: boolean; label: string; bookings?: number }[], everyNth = 1) {
-    const max = Math.max(...items.map(i => i.revenue), 1);
-    return items.map((it, i) => {
-      const ghost = it.hasData === false;
-      const heightPct = ghost ? 8 : Math.max((it.revenue / max) * 100, it.revenue > 0 ? 3 : 1.5);
-      const tooltip = ghost ? (it.label + ': no data yet') : (it.label + ': $' + fmtMoney(it.revenue) + (it.bookings !== undefined ? ' · ' + it.bookings + ' bookings' : ''));
-      return { key: 'b' + i, heightPct, ghost, isToday: !!it.isToday, tooltip, showLabel: i % everyNth === 0 || i === items.length - 1, axisLabel: it.label };
-    });
-  }
-
-  function BreakdownPanel({ breakdown }: { breakdown: Summary['breakdown'] }) {
-    const total = breakdown.reduce((a, b) => a + b.amount, 0) || 1;
-    return (
-      <div className="rv-card">
-        <h3 className="rv-card-title">By Service</h3>
-        <p className="rv-card-sub">Current selection</p>
-        {breakdown.map(b => (
-          <div key={b.key} className="rv-bd-item">
-            <div className="rv-bd-top">
-              <span className="rv-bd-label"><span className="rv-bd-dot" style={{ background: b.color }} />{b.label}</span>
-              <span className="rv-bd-amount">${fmtMoney(b.amount)}</span>
-            </div>
-            <div className="rv-bd-track"><div className="rv-bd-fill" style={{ width: `${(b.amount / total) * 100}%`, background: b.color }} /></div>
-            <span className="rv-bd-pct">{((b.amount / total) * 100).toFixed(1)}% of revenue</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  function Chart({ bars, note }: { bars: ReturnType<typeof buildBars>; note?: string }) {
-    return (
-      <div className="rv-card">
-        <h3 className="rv-card-title">Revenue Trend</h3>
-        <p className="rv-card-sub">Current selection</p>
-        <div className="rv-chart-area">
-          <div className="rv-chart-grid">
-            <div className="rv-chart-gridline" style={{ top: '0%' }} />
-            <div className="rv-chart-gridline" style={{ top: '33%' }} />
-            <div className="rv-chart-gridline" style={{ top: '66%' }} />
-          </div>
-          {bars.map(bar => (
-            <div key={bar.key} className="rv-bar-col" title={bar.tooltip} onMouseEnter={() => setHoveredKey(bar.key)} onMouseLeave={() => setHoveredKey(null)}>
-              {hoveredKey === bar.key && <div className="rv-tooltip">{bar.tooltip}</div>}
-              <div className={'rv-bar' + (bar.ghost ? ' ghost' : bar.isToday ? ' today' : '')} style={{ height: `${bar.heightPct}%` }} />
-            </div>
-          ))}
-        </div>
-        <div className="rv-bar-labels">
-          {bars.map(bar => <div key={bar.key} className="rv-bar-label-slot">{bar.showLabel ? bar.axisLabel : ''}</div>)}
-        </div>
-        {note && <p className="rv-chart-note">{note}</p>}
-      </div>
-    );
-  }
-
-  function ComparisonChip({ current, previous, suffix }: { current: number; previous: number | null; suffix: string }) {
-    const d = deltaMeta(current, previous);
-    if (!d.show) return null;
-    return <span className={'rv-cmp ' + d.dir}>{d.text.slice(0, 2)}{d.text.slice(2)}<span className="rv-hero-bookings" style={{ marginLeft: 4 }}>{suffix}</span></span>;
-  }
+  }, [paidAppointments, currentYear, currentMonth, today, sumUpToYearDay]);
 
   if (authLoading || !user || !isAdmin) return null;
 
@@ -683,6 +635,59 @@ export default function RevenuePage() {
 }
 
 // ====================== Small shared bits ======================
+
+function BreakdownPanel({ breakdown }: { breakdown: Summary['breakdown'] }) {
+  const total = breakdown.reduce((a, b) => a + b.amount, 0) || 1;
+  return (
+    <div className="rv-card">
+      <h3 className="rv-card-title">By Service</h3>
+      <p className="rv-card-sub">Current selection</p>
+      {breakdown.map(b => (
+        <div key={b.key} className="rv-bd-item">
+          <div className="rv-bd-top">
+            <span className="rv-bd-label"><span className="rv-bd-dot" style={{ background: b.color }} />{b.label}</span>
+            <span className="rv-bd-amount">${fmtMoney(b.amount)}</span>
+          </div>
+          <div className="rv-bd-track"><div className="rv-bd-fill" style={{ width: `${(b.amount / total) * 100}%`, background: b.color }} /></div>
+          <span className="rv-bd-pct">{((b.amount / total) * 100).toFixed(1)}% of revenue</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Chart({ bars, note }: { bars: ReturnType<typeof buildBars>; note?: string }) {
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  return (
+    <div className="rv-card">
+      <h3 className="rv-card-title">Revenue Trend</h3>
+      <p className="rv-card-sub">Current selection</p>
+      <div className="rv-chart-area">
+        <div className="rv-chart-grid">
+          <div className="rv-chart-gridline" style={{ top: '0%' }} />
+          <div className="rv-chart-gridline" style={{ top: '33%' }} />
+          <div className="rv-chart-gridline" style={{ top: '66%' }} />
+        </div>
+        {bars.map(bar => (
+          <div key={bar.key} className="rv-bar-col" title={bar.tooltip} onMouseEnter={() => setHoveredKey(bar.key)} onMouseLeave={() => setHoveredKey(null)}>
+            {hoveredKey === bar.key && <div className="rv-tooltip">{bar.tooltip}</div>}
+            <div className={'rv-bar' + (bar.ghost ? ' ghost' : bar.isToday ? ' today' : '')} style={{ height: `${bar.heightPct}%` }} />
+          </div>
+        ))}
+      </div>
+      <div className="rv-bar-labels">
+        {bars.map(bar => <div key={bar.key} className="rv-bar-label-slot">{bar.showLabel ? bar.axisLabel : ''}</div>)}
+      </div>
+      {note && <p className="rv-chart-note">{note}</p>}
+    </div>
+  );
+}
+
+function ComparisonChip({ current, previous, suffix }: { current: number; previous: number | null; suffix: string }) {
+  const d = deltaMeta(current, previous);
+  if (!d.show) return null;
+  return <span className={'rv-cmp ' + d.dir}>{d.text.slice(0, 2)}{d.text.slice(2)}<span className="rv-hero-bookings" style={{ marginLeft: 4 }}>{suffix}</span></span>;
+}
 
 function Controls({ tab, setTab, scopeLabel, onPrev, onNext, prevDisabled, nextDisabled, isStatic }: {
   tab: Tab; setTab: (t: Tab) => void; scopeLabel: string;

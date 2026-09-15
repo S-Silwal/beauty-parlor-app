@@ -281,7 +281,7 @@ export default function GalleryPage() {
               No photos yet
             </p>
             <p style={{ fontSize:14, color:'#9E968E' }}>
-              Check back soon — we're adding new images regularly.
+              Check back soon — we&apos;re adding new images regularly.
             </p>
           </div>
         )}

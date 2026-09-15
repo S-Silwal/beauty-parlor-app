@@ -74,7 +74,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = async () => {
     try {
       await api.logout();
-    } catch (e) {
+    } catch {
       console.log("Logout API call failed, clearing locally");
     }
     api.removeToken();

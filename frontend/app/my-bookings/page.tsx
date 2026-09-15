@@ -195,7 +195,7 @@ export default function MyBookings() {
                             <span className="text-sm text-gray-500">{myReview.rating}/5</span>
                           </div>
                           {myReview.comment && (
-                            <p className="text-sm text-gray-500 italic mt-2">"{myReview.comment}"</p>
+                            <p className="text-sm text-gray-500 italic mt-2">&quot;{myReview.comment}&quot;</p>
                           )}
                         </div>
                       ) : openId === booking.id ? (

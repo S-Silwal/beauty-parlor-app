@@ -24,7 +24,7 @@ export default function ForgotPasswordPage() {
           body: JSON.stringify({ email }),
         }
       );
-      const data = await res.json();
+      await res.json();
       // Always show success (backend never reveals if email exists)
       setDone(true);
     } catch {
@@ -79,7 +79,7 @@ export default function ForgotPasswordPage() {
               <h1 className="fp-success-title">Check your <em>email!</em></h1>
               <p className="fp-success-text">
                 If an account exists for <strong style={{ color: '#2C2825' }}>{email}</strong>,
-                we've sent a password reset link. Check your inbox and spam folder.
+                we&apos;ve sent a password reset link. Check your inbox and spam folder.
                 <br/><br/>
                 The link expires in <strong>1 hour</strong>.
               </p>
@@ -103,7 +103,7 @@ export default function ForgotPasswordPage() {
 
               <h1 className="fp-title">Forgot <em>password?</em></h1>
               <p className="fp-subtitle">
-                No worries! Enter your email and we'll send you a reset link.
+                No worries! Enter your email and we&apos;ll send you a reset link.
               </p>
 
               {error && <div className="fp-error">{error}</div>}

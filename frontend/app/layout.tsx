@@ -1,9 +1,16 @@
 // app/layout.tsx
-import type { NextConfig } from 'next';
 import type { Metadata } from "next";
+import { Didact_Gothic } from "next/font/google";
 import "./globals.css";
 import SiteChrome from "../components/SiteChrome";
 import { AuthProvider } from "@/context/AuthContext";
+
+// Individual pages each pull in their own display faces (Cormorant Garamond,
+// Jost, etc.) via their own inline <style>@import — this is only the body's
+// sitewide fallback face, self-hosted through next/font instead of a <link>
+// so it doesn't trigger a render-blocking request or the single-page-font
+// lint warning.
+const didactGothic = Didact_Gothic({ subsets: ["latin"], weight: "400" });
 
 export const metadata: Metadata = {
   title: "Crown & Glow | Premium Beauty Salon Indianapolis",
@@ -23,12 +30,8 @@ export default function RootLayout({
             unstyled form controls and inherited text can wash gold/cream copy
             out to near-invisible on a light background (e.g. the login page). */}
         <meta name="color-scheme" content="light" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Didact+Gothic&display=swap"
-          rel="stylesheet"
-        />
       </head>
-      <body style={{ margin: 0, background: "#faf6f1", fontFamily: "'Didact Gothic', sans-serif" }}>
+      <body className={didactGothic.className} style={{ margin: 0, background: "#faf6f1" }}>
         <AuthProvider>
           <SiteChrome>{children}</SiteChrome>
         </AuthProvider>

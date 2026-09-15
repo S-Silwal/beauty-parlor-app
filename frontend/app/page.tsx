@@ -1,5 +1,6 @@
 // app/page.tsx
 import Link from 'next/link';
+import Image from 'next/image';
 
 const CATEGORIES = [
   {
@@ -229,8 +230,8 @@ export default async function HomePage() {
           box-shadow: 0 20px 56px rgba(44,40,37,.11);
           transform: translateY(-5px); border-color: var(--gold-lt);
         }
-        .hm-service-img-wrap { height: 200px; overflow: hidden; }
-        .hm-service-img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .5s ease; }
+        .hm-service-img-wrap { position: relative; height: 200px; overflow: hidden; }
+        .hm-service-img { object-fit: cover; transition: transform .5s ease; }
         .hm-service-card:hover .hm-service-img { transform: scale(1.06); }
         .hm-service-body { padding: 26px 26px 28px; }
         .hm-service-title {
@@ -350,7 +351,7 @@ export default async function HomePage() {
               {CATEGORIES.map(c => (
                 <Link key={c.key} href="/services" className="hm-service-card">
                   <div className="hm-service-img-wrap">
-                    <img src={c.img} alt={c.title} className="hm-service-img" loading="lazy" />
+                    <Image src={c.img} alt={c.title} fill sizes="(max-width: 900px) 100vw, 33vw" className="hm-service-img" />
                   </div>
                   <div className="hm-service-body">
                     <h3 className="hm-service-title">{c.title}</h3>

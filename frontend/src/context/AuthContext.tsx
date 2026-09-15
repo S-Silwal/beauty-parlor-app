@@ -81,7 +81,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       try {
         const res = await api.getCurrentUser(token);
         if (res.success) setUser(res.user);
-      } catch (error) {
+      } catch {
         api.removeToken();
         setUser(null);
       }

@@ -134,7 +134,7 @@ export default function ContactPage() {
             Get in touch
           </h1>
           <p style={{ fontSize: 14, color: '#8B6244', fontWeight: 300, margin: 0 }}>
-            We'd love to hear from you — questions, requests, or just to say hello.
+            We&apos;d love to hear from you — questions, requests, or just to say hello.
           </p>
         </div>
 

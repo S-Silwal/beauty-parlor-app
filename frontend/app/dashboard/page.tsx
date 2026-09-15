@@ -117,7 +117,7 @@ const STATUS_STYLE: Record<AppointmentStatus, { bg: string; text: string; dot: s
 };
 
 export default function CustomerDashboard() {
-  const { user, isAdmin, logout, loading: authLoading } = useAuth();
+  const { user, isAdmin, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [bookings, setBookings]   = useState<Booking[]>([]);
@@ -607,7 +607,6 @@ export default function CustomerDashboard() {
         {nextAppt && (() => {
           const apptDate  = new Date(nextAppt.appointment_date);
           const daysAway  = Math.ceil((apptDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          const style     = STATUS_STYLE[nextAppt.status];
           return (
             <div className="db-next">
               <div>
@@ -680,7 +679,7 @@ export default function CustomerDashboard() {
                       </p>
                       {booking.notes && (
                         <p className="db-card-meta" style={{ marginTop: 4, fontStyle: 'italic' }}>
-                          "{booking.notes}"
+                          &quot;{booking.notes}&quot;
                         </p>
                       )}
                     </div>
