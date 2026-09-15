@@ -22,12 +22,40 @@ concurrency:
 # ─────────────────────────────────────────────────────────────────────────────
 jobs:
   backend:
-    name: Backend — TypeScript & Build
+    name: Backend — TypeScript, Test & Build
     runs-on: ubuntu-latest
 
     defaults:
       run:
         working-directory: backend
+
+    # Ephemeral Postgres for this job only — never a shared/persistent
+    # database, so a bad test run can't corrupt real data. The test suite
+    # doesn't isolate between test files (see PLAN.md/audit notes), so
+    # `npm test` also runs with --runInBand to at least serialize them
+    # against this one throwaway instance.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: beauty_parlor_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/beauty_parlor_test?schema=public
+      NODE_ENV: test
+      JWT_SECRET: ci-test-jwt-secret-not-for-production-use
+      REFRESH_SECRET: ci-test-refresh-secret-not-for-production-use
+      FRONTEND_URL: http://localhost:3000
+      BACKEND_URL: http://localhost:5000
 
     steps:
       # 1. Check out the code
@@ -46,7 +74,16 @@ jobs:
       - name: Install dependencies
         run: npm ci #installs dependencies based on package-lock.json, ensuring a consistent and clean install every time, which is crucial for CI to avoid "works on my machine" issues.
 
-      # 4. Generate Prisma client
+      # 4. Dependency vulnerability audit — fails the build on any HIGH or
+      # CRITICAL advisory in a dependency (uses the same `audit` script you'd
+      # run locally: `npm audit --audit-level=high`). This is what the
+      # scorecard's "no audit step" gap referred to — a known-vulnerable
+      # dependency should block a merge, not just show up if someone happens
+      # to run `npm audit` by hand.
+      - name: Security audit (npm audit)
+        run: npm run audit
+
+      # 5. Generate Prisma client
       # Required before TypeScript check — without this, Prisma types don't exist
       # Uses a dummy DATABASE_URL so prisma generate doesn't need a real DB
       - name: Generate Prisma client
@@ -54,21 +91,36 @@ jobs:
         env:
           DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
-      # 5. TypeScript type check — catches ALL type errors across entire codebase
+      # 6. TypeScript type check — catches ALL type errors across entire codebase
       # This is the most important step — finds errors before they reach production
       - name: TypeScript type check
         run: npx tsc --noEmit #runs the TypeScript compiler in "type check only" mode, which checks for type errors without generating any output files. This ensures that all TypeScript code adheres to the defined types and interfaces, catching potential bugs early in the development process.
 
-      # 6. ESLint — checks code quality and style rules
+      # 7. ESLint — checks code quality and style rules
       - name: Lint #checks the code for stylistic and programming errors based on the rules defined in the ESLint configuration. This helps maintain code quality and consistency across the project.
         run: npm run lint
 
-      # 7. Build — compiles TypeScript to JavaScript in /dist
+      # 8. Apply migrations to the ephemeral CI database, then seed the
+      # baseline data the tests depend on (e.g. tests/appointment.test.ts
+      # looks up an active Service row).
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed test database
+        run: npm run db:seed
+
+      # 9. Run the Jest/Supertest suite — this is what actually gates
+      # merges to main on the double-booking, auth, and cutoff behavior
+      # this app depends on, not just "it compiles."
+      - name: Run tests
+        run: npm test
+
+      # 10. Build — compiles TypeScript to JavaScript in /dist
       # If this passes, the backend can actually start
       - name: Build #convering TypeScript code into JavaScript, which is necessary for running the backend in production. This step ensures that the code can be successfully compiled without errors, and that all necessary files are generated in the /dist directory as expected.
         run: npm run build #coverts .ts into .js and outputs to dist folder, if this step fails, it means there are issues in the code that prevent it from being compiled successfully, such as syntax errors, missing imports, or other build-related problems. A successful build indicates that the code is syntactically correct and can be executed in a production environment.
 
-      # 8. Verify build output exists
+      # 11. Verify build output exists
       - name: Verify build output  #checks if the expected output file dist/server.js exists after the build step. This is a crucial verification step to ensure that the build process produced the necessary output for the backend to run. If dist/server.js is missing, it indicates that the build failed to generate the required file, which would prevent the backend from starting properly in production.
         run: | 
           if [ ! -f dist/server.js ]; then
@@ -105,16 +157,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # 4. TypeScript type check
+      # 4. Dependency vulnerability audit — same rationale as the backend job
+      - name: Security audit (npm audit)
+        run: npm run audit
+
+      # 5. TypeScript type check
       # Next.js build does this too but running it separately gives cleaner errors
       - name: TypeScript type check
         run: npx tsc --noEmit
 
-      # 5. ESLint
+      # 6. ESLint
       - name: Lint
         run: npm run lint
 
-      # 6. Build Next.js app
+      # 7. Build Next.js app
       # Needs a dummy API URL so fetch calls don't fail at build time
       # This catches missing imports, broken pages, and invalid JSX
       - name: Build
@@ -124,7 +180,7 @@ jobs:
           # Tells Next.js to skip actual API calls during static generation
           NEXT_TELEMETRY_DISABLED: 1
 
-      # 7. Confirm .next folder was created
+      # 8. Confirm .next folder was created
       - name: Verify build output
         run: |
           if [ ! -d .next ]; then
