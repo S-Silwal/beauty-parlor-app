@@ -1,14 +1,37 @@
 // tests/setup.ts
 import { prisma } from '../config/database';
+import { Resend } from 'resend';
 import dotenv from 'dotenv';
 
-// Load environment variables for tests (optional but recommended)
 dotenv.config({ path: '.env.test' });
+
+// Tests never send real email. getResend() still requires a truthy
+// RESEND_API_KEY before it will even construct a client, so give it one —
+// and mock the actual Resend package so nothing hits the network.
+process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 'test_dummy_key';
+
+jest.mock('resend', () => ({
+  Resend: jest.fn().mockImplementation(() => ({
+    emails: {
+      send: jest.fn().mockResolvedValue({ data: { id: 'mock-email-id' }, error: null }),
+    },
+  })),
+}));
+
+beforeEach(() => {
+  // jest.config.ts has resetMocks:true, which wipes the mockResolvedValue
+  // above before every single test — re-apply it here so every test still
+  // gets a working mocked send(), not one that silently resolves undefined.
+  (Resend as unknown as jest.Mock).mockImplementation(() => ({
+    emails: {
+      send: jest.fn().mockResolvedValue({ data: { id: 'mock-email-id' }, error: null }),
+    },
+  }));
+});
 
 // ====================== GLOBAL SETUP ======================
 beforeAll(async () => {
   console.log('🧪 Initializing test environment...');
-
   try {
     await prisma.$connect();
     console.log('✅ Test database connected successfully');
@@ -21,7 +44,6 @@ beforeAll(async () => {
 // ====================== GLOBAL CLEANUP ======================
 afterAll(async () => {
   console.log('🧹 Cleaning up test environment...');
-
   try {
     await prisma.$disconnect();
     console.log('✅ Test database disconnected');
@@ -29,12 +51,3 @@ afterAll(async () => {
     console.error('❌ Error disconnecting from database:', error);
   }
 });
-
-// Optional: Reset database before each test (uncomment if you want fresh data every test)
-// beforeEach(async () => {
-//   await prisma.appointment.deleteMany({});
-//   await prisma.refreshToken.deleteMany({});
-//   await prisma.otpCode.deleteMany({});
-//   await prisma.passwordResetToken.deleteMany({});
-//   console.log('🗑️ Database reset for next test');
-// });
