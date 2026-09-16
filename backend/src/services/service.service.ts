@@ -5,16 +5,32 @@ import { CreateServiceInput, UpdateServiceInput } from "../validators/service.va
 import { AppError } from "../utils/AppError";
 import { verifyCloudinaryImage, ALLOWED_IMAGE_FORMATS } from "../config/cloudinary";
 import { recordAuditLog, diffFields, AuditActor } from "./adminAuditLog.service";
+import { PageParams, PaginatedResult } from "../utils/pagination";
 
 const SERVICE_IMAGE_FOLDER = "beauty-parlor/services";
 
 export class ServiceService {
 
-  static async getAll() {
-    return await prisma.service.findMany({
-      where: { isActive: true },
-      orderBy: { name: "asc" },
-    });
+  // `pagination` is optional and opt-in (see utils/pagination.ts) — omit it
+  // and this returns the full array exactly as before, so the existing
+  // admin services table is unaffected until it adds a page control.
+  // Mirrors AppointmentService.getAllServices/getAllStaff, which already
+  // used this same convention for the public booking-page listings (H7 in
+  // the audit flagged this method specifically as the one list endpoint
+  // that never got it).
+  static async getAll(pagination?: PageParams): Promise<any[] | PaginatedResult<any>> {
+    const where = { isActive: true };
+    const orderBy = { name: "asc" as const };
+
+    if (!pagination) {
+      return await prisma.service.findMany({ where, orderBy });
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.service.findMany({ where, orderBy, skip: pagination.skip, take: pagination.take }),
+      prisma.service.count({ where }),
+    ]);
+    return { items, total, page: pagination.page, limit: pagination.limit };
   }
 
   static async create(data: CreateServiceInput) {

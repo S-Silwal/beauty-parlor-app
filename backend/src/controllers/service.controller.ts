@@ -3,13 +3,23 @@ import { Request, Response, NextFunction } from "express";
 import { ServiceService } from "../services/service.service";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { createServiceSchema, updateServiceSchema } from "../validators/service.validator";
+import { parsePagination } from "../utils/pagination";
 
 export class ServiceController {
 
   static async getAllServices(req: Request, res: Response, next: NextFunction) {
     try {
-      const services = await ServiceService.getAll();
-      res.json({ success: true, services });
+      const pagination = parsePagination(req.query);
+      const result = await ServiceService.getAll(pagination ?? undefined);
+      // Unpaginated (default) callers get back exactly what they always did
+      // — a plain `services` array — so this stays backward compatible.
+      if (Array.isArray(result)) {
+        res.json({ success: true, services: result });
+      } else {
+        res.json({ success: true, services: result.items, pagination: {
+          total: result.total, page: result.page, limit: result.limit,
+        }});
+      }
     } catch (error) {
       next(error);
     }

@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "module": "CommonJS",           // Changed from NodeNext
     "moduleResolution": "Node10",   // Changed from NodeNext
