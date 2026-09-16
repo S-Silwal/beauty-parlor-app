@@ -1,13 +1,17 @@
-// middleware.ts — place at root of frontend project (same level as app/)
-// NOTE: Next.js middleware runs on the Edge and CANNOT read localStorage.
-// Token must be stored in a cookie for middleware to work.
+// proxy.ts — place at root of frontend project (same level as app/)
+// Renamed from middleware.ts: Next.js 16 deprecated the `middleware` file
+// convention in favor of `proxy` (same file conventions/APIs, function
+// renamed from `middleware` to `proxy`) — see
+// node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md.
+// NOTE: Next.js proxy runs on the Edge and CANNOT read localStorage.
+// Token must be stored in a cookie for proxy to work.
 //
 // ⚠️  TRUST BOUNDARY — READ BEFORE RELYING ON THIS FOR ANYTHING SECURITY-
 // SENSITIVE (H10 in PRODUCTION_READINESS_AUDIT.md):
 // decodeJwt() below only base64-decodes the token payload — it does NOT
-// verify the JWT signature, because Edge middleware has no access to
+// verify the JWT signature, because Edge proxy has no access to
 // JWT_SECRET (and verifying it here wouldn't be meaningfully safer even if
-// it did — Edge Middleware still isn't where authorization belongs). That
+// it did — Edge Proxy still isn't where authorization belongs). That
 // means the `role` this file reads is whatever the payload CLAIMS, not
 // something cryptographically proven. A hand-edited cookie with
 // `role: "ADMIN"` sails right past the checks below and into the /admin
@@ -47,7 +51,7 @@ function isExpired(payload: { exp?: number }): boolean {
   return Date.now() >= payload.exp * 1000;
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (
