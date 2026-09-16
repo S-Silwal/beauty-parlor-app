@@ -69,6 +69,20 @@ describe('<RegisterPage />', () => {
     expect(screen.getByText('✓ Valid US phone number')).toBeInTheDocument();
   });
 
+  it('toggles the password field between hidden and visible text', async () => {
+    const user = userEvent.setup();
+    render(<RegisterPage />);
+
+    const passwordInput = screen.getByLabelText('Password') as HTMLInputElement;
+    expect(passwordInput.type).toBe('password');
+
+    await user.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(passwordInput.type).toBe('text');
+
+    await user.click(screen.getByRole('button', { name: 'Hide password' }));
+    expect(passwordInput.type).toBe('password');
+  });
+
   it('disables submit while the password fails requirements and enables it once valid', async () => {
     const user = userEvent.setup();
     render(<RegisterPage />);
