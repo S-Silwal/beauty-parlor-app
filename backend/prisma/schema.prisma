@@ -127,8 +127,9 @@ model Staff {
   email          String?
   specialization String?
   bio            String?
-  avatar         String?
-  isActive       Boolean @default(true)
+  avatar         String? // Cloudinary secure_url — shown on the admin Staff panel and the public About page
+  avatarPublicId String? // Cloudinary public_id — lets us delete/replace the asset; null for any pre-Cloudinary/seed data
+  isActive       Boolean @default(true) // gates both bookability AND whether this staff member appears on the public About page "Meet Our Team" section
 
   // The User account that logs in as this staff member (role=STAFF), if
   // they have portal access at all — a Staff row can exist purely as a
@@ -149,6 +150,13 @@ model Staff {
 }
 
 // ====================== APPOINTMENT ======================
+// NOTE: a partial UNIQUE index — one active (PENDING/CONFIRMED) booking per
+// (user_id, appointment_date) — exists in the database as a hand-written
+// raw-SQL migration (20260916150000_add_appointment_overlap_guards),
+// because Prisma's schema DSL can't express a WHERE clause on an index.
+// It's a defense-in-depth backstop for the exact-same-instant case, not a
+// substitute for assertSlotAvailable()'s interval-overlap check in
+// appointment.service.ts — see that migration's comment for why.
 model Appointment {
   id               String            @id @default(uuid())
   user_id          String
@@ -181,6 +189,12 @@ model Appointment {
   @@index([appointment_date])
   @@index([status])
   @@index([payment_status])
+  // Composite indexes matching the overlap queries assertSlotAvailable()
+  // actually runs (customer/staff scoped, ordered by start time) — the
+  // single-column indexes above still exist for other lookups, these speed
+  // up the double-booking check specifically as the table grows.
+  @@index([user_id, appointment_date])
+  @@index([staff_id, appointment_date])
   @@map("appointments")
 }
 
@@ -264,6 +278,29 @@ model GalleryImage {
   created_at  DateTime @default(now())
 
   @@map("gallery_images")
+}
+
+// A homepage hero background slide, admin-managed — see HeroSlideService.
+// One row = one full-bleed image + its own headline/description/CTA. The
+// public homepage renders whatever's active, ordered by sortOrder, with no
+// code change or redeploy needed to swap the background or copy.
+model HeroSlide {
+  id            String  @id @default(uuid())
+  imageUrl      String // Cloudinary secure_url
+  imagePublicId String? // Cloudinary public_id — lets us delete/replace the asset; null for any pre-Cloudinary seed data
+  title         String // first headline line, e.g. "Where beauty"
+  titleAccent   String? // optional second line, rendered in italic, e.g. "meets ritual."
+  description   String
+  ctaLabel      String
+  ctaHref       String
+  sortOrder     Int     @default(0) // slide sequence on the homepage — lower first
+  isActive      Boolean @default(true) // inactive slides are kept (not deleted) but never shown publicly
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("hero_slides")
 }
 
 model StaffAvailability {
@@ -387,4 +424,8 @@ enum ChangeRequestStatus {
   PENDING
   APPROVED
   DECLINED
+  // Customer withdrew their own still-pending request before an admin
+  // acted on it. Terminal, like APPROVED/DECLINED — never goes back to
+  // PENDING. See ChangeRequestService.withdraw().
+  WITHDRAWN
 }

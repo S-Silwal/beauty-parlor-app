@@ -16,13 +16,17 @@ export class ReviewController {
     }
   }
 
-  // Powers the homepage's public review cards — no login required. Returns
-  // only reviews with a comment, and only the reviewer's first name.
+  // Powers the homepage's public review cards, and (with ?all=true) the
+  // full /reviews page — no login required either way, so guests can read.
+  // Default: only reviews with a comment (homepage quote cards). ?all=true:
+  // every verified review, including bare star ratings with no comment.
   static async getPublicReviews(req: Request, res: Response, next: NextFunction) {
     try {
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
+      const requireComment = req.query.all !== "true";
       const reviews = await ReviewService.getPublicReviews(
-        limit && !Number.isNaN(limit) ? limit : undefined
+        limit && !Number.isNaN(limit) ? limit : undefined,
+        requireComment
       );
       res.json({ success: true, reviews });
     } catch (error) {

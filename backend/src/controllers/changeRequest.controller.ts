@@ -64,6 +64,19 @@ export class ChangeRequestController {
     }
   }
 
+  static async withdraw(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+      const { id } = req.params;
+      const request = await ChangeRequestService.withdraw(req.user.userId, id);
+
+      res.json({ success: true, message: "Request withdrawn.", request });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // ====================== ADMIN / STAFF ======================
   // Role is already enforced by isStaffOrAdmin middleware on these routes.
   // A STAFF caller is further scoped to only requests against their own

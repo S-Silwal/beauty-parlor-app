@@ -15,6 +15,7 @@
     "prisma:push": "prisma db push",
     "prisma:reset": "prisma migrate reset",
     "db:seed": "ts-node src/utils/seed.ts",
+    "fix:duplicate-bookings": "ts-node src/scripts/fix-duplicate-bookings.ts",
     "db:reset": "npm run prisma:reset && npm run prisma:generate && npm run prisma:migrate && npm run db:seed",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",

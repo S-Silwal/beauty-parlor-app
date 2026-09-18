@@ -26,6 +26,18 @@ export class StaffController {
     }
   }
 
+  // Get a signed Cloudinary upload URL (frontend uploads directly to
+  // Cloudinary) — same pattern as GET /api/hero-slides/signed-url and
+  // GET /api/services/signed-url.
+  static async getSignedUrl(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const signedData = await StaffService.generateSignedUploadUrl();
+      res.json({ success: true, ...signedData });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // Role is already enforced by isAdmin middleware on this route.
   static async createStaff(req: AuthRequest, res: Response, next: NextFunction) {
     try {

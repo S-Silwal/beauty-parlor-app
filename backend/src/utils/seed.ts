@@ -3,6 +3,27 @@ import { prisma } from "../config/database";
 import bcrypt from "bcryptjs";
 import { ServiceCategory } from "@prisma/client";
 
+// Seeds the CURRENT homepage hero exactly as it looks today, as slide 1 —
+// see HeroSlide in schema.prisma and app/page.tsx's HeroSlider usage. This
+// is the fallback image already hardcoded in the homepage's CSS before the
+// admin-managed hero existed; imagePublicId is null because it's an
+// Unsplash URL, not a Cloudinary asset (deleteSlide/updateSlide already
+// handle a null publicId gracefully, same as GalleryService does).
+const sampleHeroSlides = [
+  {
+    imageUrl: "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1800&q=85",
+    imagePublicId: null,
+    title: "Where beauty",
+    titleAccent: "meets ritual.",
+    description:
+      "Premium beauty treatments crafted with precision, care, and artistry — for every version of you.",
+    ctaLabel: "Explore Services",
+    ctaHref: "/services",
+    sortOrder: 0,
+    isActive: true,
+  },
+];
+
 const sampleServices = [
   {
     name: "Eyebrow Shaping / Threading",
@@ -226,6 +247,18 @@ async function seed() {
       skipDuplicates: true,
     });
     console.log(`✅ ${sampleGallery.length} gallery images seeded`);
+
+    // Seed the homepage hero slide — only on a genuinely empty table, so
+    // re-running seed in dev never duplicates it or wipes out real edits an
+    // admin has since made from /admin's Hero tab (unlike gallery images
+    // above, these rows have no natural unique key to de-duplicate on).
+    const heroSlideCount = await prisma.heroSlide.count();
+    if (heroSlideCount === 0) {
+      await prisma.heroSlide.createMany({ data: sampleHeroSlides });
+      console.log(`✅ ${sampleHeroSlides.length} hero slide(s) seeded`);
+    } else {
+      console.log(`ℹ️  Hero slides already exist (${heroSlideCount}) — skipping seed`);
+    }
 
     // Seed Admin User — override via env vars so the credential isn't a
     // permanently-known constant baked into the repo.

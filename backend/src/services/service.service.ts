@@ -49,6 +49,9 @@ export class ServiceService {
         duration: data.duration,
         price: data.price,
         image: data.image,
+        // Drives the public Services page's "Signature" badge — was
+        // missing here, so it silently never made it past validation.
+        is_popular: data.is_popular ?? false,
         isActive: data.isActive ?? true,
       },
     });
@@ -73,6 +76,10 @@ export class ServiceService {
         duration: data.duration,
         price: data.price,
         image: data.image,
+        // Same class of bug as `category` above — allowed through
+        // validation but never reached Prisma, so admin's "Signature
+        // service" checkbox saved nothing.
+        is_popular: data.is_popular,
         isActive: data.isActive,
       },
     });

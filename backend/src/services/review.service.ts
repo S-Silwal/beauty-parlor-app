@@ -65,13 +65,21 @@ export class ReviewService {
     };
   }
 
-  // ── Public reviews list — powers the homepage's public review cards ────────
-  // Only reviews that actually left a comment are worth showing publicly (a
-  // bare star rating has nothing to quote), and only ever exposes the
-  // reviewer's first name — never their full name, email, or user id.
-  static async getPublicReviews(limit = 20) {
+  // ── Public reviews list — powers the homepage's public review cards, and
+  //    (with requireComment=false) the full /reviews page ──────────────────
+  // By default only reviews that actually left a comment are worth showing
+  // as a quote card (a bare star rating has nothing to quote) — that's the
+  // homepage's existing behavior, unchanged. Passing requireComment=false
+  // additionally includes star-only reviews (comment left null), for a
+  // dedicated "read every verified review" page. Either way, this only
+  // ever exposes the reviewer's first name — never their full name, email,
+  // phone, or user id — and every row here is already gated at creation
+  // time (ReviewService.createReview) to a real customer's own COMPLETED
+  // appointment, so there is no separate "verified" flag to check: existing
+  // in this table *is* verified.
+  static async getPublicReviews(limit = 20, requireComment = true) {
     const reviews = await prisma.review.findMany({
-      where: { comment: { not: null } },
+      where: requireComment ? { comment: { not: null } } : undefined,
       orderBy: { created_at: "desc" },
       take: Math.min(Math.max(limit, 1), 50),
       include: {
@@ -81,7 +89,7 @@ export class ReviewService {
     });
 
     return reviews
-      .filter((r) => r.comment && r.comment.trim().length > 0)
+      .filter((r) => !requireComment || (r.comment && r.comment.trim().length > 0))
       .map((r) => ({
         id: r.id,
         rating: r.rating,

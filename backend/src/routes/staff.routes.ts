@@ -13,6 +13,12 @@ router.get("/", StaffController.getAllStaff);
 // Includes the staff<->login linkage the public GET "/" above withholds —
 // used by the admin Staff Management UI.
 router.get   ("/admin", authenticate, isAdmin, StaffController.getAllStaffAdmin);
+
+// Signed Cloudinary upload URL (frontend uploads directly to Cloudinary,
+// then POSTs/PATCHes the resulting URL below) — same flow as
+// /api/gallery and /api/hero-slides.
+router.get   ("/signed-url", authenticate, isAdmin, StaffController.getSignedUrl);
+
 router.post  ("/",    authenticate, isAdmin, StaffController.createStaff);
 router.patch ("/:id", authenticate, isAdmin, StaffController.updateStaff);
 router.delete("/:id", authenticate, isAdmin, StaffController.deleteStaff); // ✅ uncommented

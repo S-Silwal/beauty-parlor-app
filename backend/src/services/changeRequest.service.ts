@@ -1,12 +1,10 @@
 // src/services/changeRequest.service.ts
 import { prisma } from "../config/database";
-import { AppointmentStatus, ChangeRequestType, Prisma } from "@prisma/client";
+import { AppointmentStatus, ChangeRequestStatus, ChangeRequestType, Prisma } from "@prisma/client";
 import { AppError } from "../utils/AppError";
 import {
   assertSlotAvailable,
   runSerializable,
-  isInsideCutoff,
-  SELF_SERVICE_CUTOFF_HOURS,
 } from "./appointment.service";
 import { emitBookingUpdated, emitChangeRequestCreated, emitChangeRequestResolved } from "../socket";
 import {
@@ -47,24 +45,14 @@ export class ChangeRequestService {
       throw new AppError("Only upcoming (pending or confirmed) bookings can be edited", 409);
     }
 
-    // This flow exists only for what the direct PATCH /:id/reschedule
-    // endpoint can't do: (a) an appointment too close to its start time for
-    // self-service (see isInsideCutoff), where it needs an admin's manual
-    // OK, or (b) changing the service — reschedule only ever touches
-    // date/staff/notes. Outside the cutoff and without a service change,
-    // there's nothing here an admin approval adds — the customer should
-    // just reschedule it themselves instantly.
+    // Every customer-initiated edit goes through this request/approval flow
+    // and NEVER touches the live booking directly — regardless of how far
+    // away the appointment is. The direct PATCH /:id/reschedule endpoint
+    // still exists in this service (e.g. for a possible future "admin
+    // reschedules directly from Bookings" action) but the customer
+    // dashboard no longer calls it for self-service edits.
     const changingService =
       !!data.requested_service_id && data.requested_service_id !== appointment.service_id;
-    if (!isInsideCutoff(appointment.appointment_date) && !changingService) {
-      throw new AppError(
-        `This booking is still more than ${SELF_SERVICE_CUTOFF_HOURS} hour` +
-        `${SELF_SERVICE_CUTOFF_HOURS === 1 ? "" : "s"} away — reschedule the date, time or staff ` +
-        `yourself instantly instead of waiting for approval. (Changing the service still needs ` +
-        `approval regardless of timing.)`,
-        409
-      );
-    }
 
     // One live request at a time per booking — stops a customer from
     // stacking conflicting requests on the same appointment.
@@ -96,6 +84,7 @@ export class ChangeRequestService {
     // a concurrent double-book) that booking/reschedule already use.
     await runSerializable(async (tx) => {
       await assertSlotAvailable(tx, {
+        customerId: appointment.user_id,
         staffId,
         newStart,
         newEnd,
@@ -130,20 +119,11 @@ export class ChangeRequestService {
       throw new AppError("Only upcoming (pending or confirmed) bookings can be cancelled", 409);
     }
 
-    // Outside the cutoff, DELETE /:id/cancel does this instantly with no
-    // approval needed — routing the same outcome through an admin here too
-    // would just be a slower, bypassable duplicate of that endpoint. This
-    // flow is for the one case self-service can't cover: too close to the
-    // start time to cancel directly.
-    if (!isInsideCutoff(appointment.appointment_date)) {
-      throw new AppError(
-        `This booking is still more than ${SELF_SERVICE_CUTOFF_HOURS} hour` +
-        `${SELF_SERVICE_CUTOFF_HOURS === 1 ? "" : "s"} away — cancel it yourself instantly instead ` +
-        `of waiting for approval.`,
-        409
-      );
-    }
-
+    // Cancelling, like editing, always goes through admin approval now —
+    // the direct DELETE /:id/cancel endpoint still exists in this service
+    // but the customer dashboard no longer calls it for self-service
+    // cancels; the live booking must stay on its original slot/status
+    // until an admin accepts this request.
     const existingPending = await prisma.appointmentChangeRequest.findFirst({
       where: { appointment_id: appointmentId, status: "PENDING" },
     });
@@ -266,6 +246,7 @@ export class ChangeRequestService {
     try {
       const updatedAppointment = await runSerializable(async (tx) => {
         await assertSlotAvailable(tx, {
+          customerId: appointment.user_id,
           staffId,
           newStart,
           newEnd,
@@ -280,7 +261,15 @@ export class ChangeRequestService {
             service_id: request.requested_service_id ?? appointment.service_id,
             duration,
             total_price: totalPrice,
-            status: "RESCHEDULED" as AppointmentStatus,
+            // Approving an edit request is itself an admin affirmation of
+            // the booking — it becomes/stays CONFIRMED, never RESCHEDULED.
+            // RESCHEDULED is reserved for a direct admin reschedule from
+            // the Bookings tab (a separate code path from this
+            // request/approval flow) — writing it here would make the
+            // customer dashboard's Upcoming/History split bury a booking
+            // that is, from the customer's point of view, still perfectly
+            // upcoming, just at its newly-approved time.
+            status: "CONFIRMED" as AppointmentStatus,
           },
           include: { service: true, staff: true },
         });
@@ -320,5 +309,36 @@ export class ChangeRequestService {
       }
       throw err;
     }
+  }
+
+  // ── Customer: withdraw their own still-pending request ─────────────────
+  // Only a PENDING request can be withdrawn — once an admin has already
+  // approved or declined it, the decision stands. Nothing about the
+  // appointment itself changes (it was never touched while the request was
+  // pending), so there's nothing to undo there.
+  static async withdraw(userId: string, requestId: string) {
+    const request = await prisma.appointmentChangeRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) throw new AppError("Change request not found", 404);
+    if (request.user_id !== userId) {
+      throw new AppError("You can only withdraw your own requests", 403);
+    }
+    if (request.status !== "PENDING") {
+      throw new AppError("This request has already been resolved", 409);
+    }
+
+    const updated = await prisma.appointmentChangeRequest.update({
+      where: { id: requestId },
+      data: { status: "WITHDRAWN" as ChangeRequestStatus, resolved_at: new Date() },
+      include: REQUEST_INCLUDE,
+    });
+
+    // Reuse the same broadcast approve/decline already use — the admin
+    // panel's pending list and this customer's own other tabs/devices both
+    // already refetch on it, so a withdrawn request disappears from the
+    // pending list with no new wiring on either side.
+    emitChangeRequestResolved(updated);
+    return updated;
   }
 }

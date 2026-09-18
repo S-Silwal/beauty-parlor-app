@@ -50,22 +50,46 @@ export function isInsideCutoff(appointmentDate: Date): boolean {
   return appointmentDate.getTime() - Date.now() < SELF_SERVICE_CUTOFF_MS;
 }
 
+function endOfBooking(start: Date, durationMinutes: number): Date {
+  return new Date(start.getTime() + (durationMinutes || 30) * 60 * 1000);
+}
+
+function rangesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
+  return aStart < bEnd && aEnd > bStart;
+}
+
 /**
- * Checks staff_id + time-range overlap against active (PENDING/CONFIRMED)
- * bookings. Must run inside the same transaction as the write that follows
- * it — see runSerializable() below for why.
+ * Checks BOTH staff_id overlap AND customer overlap against active
+ * (PENDING/CONFIRMED) bookings, using startAt/endAt interval math (not
+ * date-only). Must run inside the same transaction as the write that
+ * follows it — see runSerializable() below for why.
  *
  * A booking with no staff assigned only conflicts with other unassigned
  * bookings (it represents a generic capacity slot, not a specific person),
  * mirroring how getAvailableSlots() treats staff_id.
+ *
+ * The customer check runs regardless of service or staff — a customer
+ * can't sit in two chairs at once, even for two *different* services with
+ * two *different* staff members. This used to be entirely missing: the
+ * only check here was staff-scoped, so the same customer could double-book
+ * themselves across two staff members (or two unassigned slots) at the
+ * exact same time and both requests would pass. That's the root cause of
+ * the double-booking bug — see PR description.
  */
 export async function assertSlotAvailable(
   tx: Tx,
-  params: { staffId?: string | null; newStart: Date; newEnd: Date; excludeAppointmentId?: string }
+  params: {
+    customerId: string;
+    staffId?: string | null;
+    newStart: Date;
+    newEnd: Date;
+    excludeAppointmentId?: string;
+  }
 ) {
-  const { staffId, newStart, newEnd, excludeAppointmentId } = params;
+  const { customerId, staffId, newStart, newEnd, excludeAppointmentId } = params;
 
-  const existingBookings = await tx.appointment.findMany({
+  // ── 1. Staff overlap — a staff member cannot do two services at once. ──
+  const staffConflicts = await tx.appointment.findMany({
     where: {
       ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
       status: { in: ["PENDING", "CONFIRMED"] },
@@ -75,11 +99,11 @@ export async function assertSlotAvailable(
     select: { appointment_date: true, duration: true },
   });
 
-  for (const booking of existingBookings) {
+  for (const booking of staffConflicts) {
     const existingStart = new Date(booking.appointment_date);
-    const existingEnd = new Date(existingStart.getTime() + (booking.duration || 30) * 60 * 1000);
+    const existingEnd = endOfBooking(existingStart, booking.duration);
 
-    if (newStart < existingEnd && newEnd > existingStart) {
+    if (rangesOverlap(newStart, newEnd, existingStart, existingEnd)) {
       const availableFrom = existingEnd.toLocaleTimeString('en-US', {
         hour: 'numeric', minute: '2-digit',
       });
@@ -87,7 +111,33 @@ export async function assertSlotAvailable(
         staffId
           ? `This staff member is booked until ${availableFrom}. Please select a time at or after ${availableFrom}.`
           : `This time slot is unavailable until ${availableFrom}. Please choose a different time.`,
-        409
+        409,
+        "SLOT_UNAVAILABLE"
+      );
+    }
+  }
+
+  // ── 2. Customer overlap — any service, any staff (or none). ──
+  const customerConflicts = await tx.appointment.findMany({
+    where: {
+      ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
+      status: { in: ["PENDING", "CONFIRMED"] },
+      user_id: customerId,
+      appointment_date: { lt: newEnd },
+    },
+    select: { id: true, appointment_date: true, duration: true },
+  });
+
+  for (const booking of customerConflicts) {
+    const existingStart = new Date(booking.appointment_date);
+    const existingEnd = endOfBooking(existingStart, booking.duration);
+
+    if (rangesOverlap(newStart, newEnd, existingStart, existingEnd)) {
+      throw new AppError(
+        "You already have an appointment at this time.",
+        409,
+        "CUSTOMER_TIME_CONFLICT",
+        booking.id
       );
     }
   }
@@ -307,6 +357,10 @@ export class AppointmentService {
   }
 
   // ── Book appointment ───────────────────────────────────────────────────────
+  // Returns `{ appointment, isNew }` — `isNew: false` means this call was an
+  // idempotent replay of an already-existing booking (see the duplicate
+  // guard below), not a fresh insert. The controller uses that to decide
+  // 201 vs 200 and to avoid re-emitting sockets/notifications.
   static async bookAppointment(
     userId: string,
     data: {
@@ -314,8 +368,9 @@ export class AppointmentService {
       staff_id?:        string;
       appointment_date: string | Date;
       notes?:           string;
-    }
-  ) {
+    },
+    idempotencyKey?: string
+  ): Promise<{ appointment: any; isNew: boolean }> {
     const appointmentDate = new Date(data.appointment_date);
     if (isNaN(appointmentDate.getTime())) {
       throw new AppError("Invalid appointment date format", 400);
@@ -329,12 +384,50 @@ export class AppointmentService {
     const newStart = appointmentDate;
     const newEnd   = new Date(newStart.getTime() + service.duration * 60 * 1000);
 
-    // Overlap check + create happen inside one Serializable transaction —
-    // see runSerializable()'s comment for why that's required.
-    const appointment = await runSerializable(async (tx) => {
-      await assertSlotAvailable(tx, { staffId: data.staff_id, newStart, newEnd });
+    const includeShape = {
+      service: true,
+      staff:   true,
+      user:    { select: { id: true, name: true, email: true } },
+    } as const;
 
-      return tx.appointment.create({
+    // Overlap check + duplicate check + create all happen inside one
+    // Serializable transaction — see runSerializable()'s comment for why
+    // that's required (two concurrent identical POSTs must not both pass).
+    const { appointment, isNew } = await runSerializable(async (tx) => {
+      // Exact-duplicate guard: same customer + same service + same start.
+      // This is what a double-click / double-submit (or a client blindly
+      // retrying a request it isn't sure succeeded) actually produces.
+      // Without this, two identical requests could both reach
+      // assertSlotAvailable and — since that only ever compared staff_id —
+      // both pass as long as they used different/no staff.
+      const duplicate = await tx.appointment.findFirst({
+        where: {
+          user_id:          userId,
+          service_id:       data.service_id,
+          appointment_date: appointmentDate,
+          status:           { in: ["PENDING", "CONFIRMED"] },
+        },
+        include: includeShape,
+      });
+
+      if (duplicate) {
+        // A caller that sent an Idempotency-Key is explicitly asking "give
+        // me the result of my earlier request if it already went through"
+        // — that's a safe replay, not an error.
+        if (idempotencyKey) {
+          return { appointment: duplicate, isNew: false };
+        }
+        throw new AppError(
+          "You already have this exact appointment booked.",
+          409,
+          "DUPLICATE_BOOKING",
+          duplicate.id
+        );
+      }
+
+      await assertSlotAvailable(tx, { customerId: userId, staffId: data.staff_id, newStart, newEnd });
+
+      const created = await tx.appointment.create({
         data: {
           user_id:          userId,
           service_id:       data.service_id,
@@ -346,24 +439,25 @@ export class AppointmentService {
           status:           "PENDING" as AppointmentStatus,
           payment_status:   "PENDING" as PaymentStatus,
         },
-        include: {
-          service: true,
-          staff:   true,
-          user:    { select: { id: true, name: true, email: true } },
-        },
+        include: includeShape,
       });
+      return { appointment: created, isNew: true };
     });
 
-    emitBookingCreated(appointment);
+    if (isNew) {
+      emitBookingCreated(appointment);
 
-    // notifyBookingConfirmed() sends the confirmation email + SMS and
-    // schedules the 24h reminder — do not also call sendEmail() directly
-    // here, or the customer gets two confirmation emails per booking.
-    notifyBookingConfirmed(appointment.id).catch(err =>
-      console.error("Notification error:", err)
-    );
+      // notifyBookingConfirmed() sends the confirmation email + SMS and
+      // schedules the 24h reminder — do not also call sendEmail() directly
+      // here, or the customer gets two confirmation emails per booking.
+      // Only fire this for a genuinely new row — an idempotent replay must
+      // not re-send the confirmation email/SMS.
+      notifyBookingConfirmed(appointment.id).catch(err =>
+        console.error("Notification error:", err)
+      );
+    }
 
-    return appointment;
+    return { appointment, isNew };
   }
 
   // ── Get user appointments ──────────────────────────────────────────────────
@@ -423,7 +517,7 @@ export class AppointmentService {
     // Overlap check + update happen inside one Serializable transaction —
     // see runSerializable()'s comment for why that's required.
     const updated = await runSerializable(async (tx) => {
-      await assertSlotAvailable(tx, { staffId, newStart, newEnd, excludeAppointmentId: appointmentId });
+      await assertSlotAvailable(tx, { customerId: userId, staffId, newStart, newEnd, excludeAppointmentId: appointmentId });
 
       return tx.appointment.update({
         where: { id: appointmentId },
@@ -514,15 +608,41 @@ export class AppointmentService {
       throw new AppError("Cannot mark a future appointment as a no-show — wait until its start time has passed.", 409);
     }
 
-    const updated = await prisma.appointment.update({
-      where:   { id: appointmentId },
-      data:    { status },
-      include: {
-        service: true,
-        staff:   true,
-        user:    { select: { id: true, name: true, email: true } },
-      },
-    });
+    const appointmentIncludeShape = {
+      service: true,
+      staff:   true,
+      user:    { select: { id: true, name: true, email: true } },
+    } as const;
+
+    // Confirming re-validates that no other active booking now overlaps
+    // this one (same customer OR same staff) before flipping status — the
+    // same check bookAppointment/rescheduleAppointment run at create time,
+    // re-run here so a PENDING row created before this fix (or a staff
+    // reassignment made after booking) can't silently graduate into a live
+    // double-booking. Every other transition is a plain single-row update,
+    // same as before — it never creates a second row.
+    const updated = status === "CONFIRMED"
+      ? await runSerializable(async (tx) => {
+          const newStart = new Date(appointment.appointment_date);
+          const newEnd   = new Date(newStart.getTime() + appointment.duration * 60 * 1000);
+          await assertSlotAvailable(tx, {
+            customerId:           appointment.user_id,
+            staffId:              appointment.staff_id,
+            newStart,
+            newEnd,
+            excludeAppointmentId: appointmentId,
+          });
+          return tx.appointment.update({
+            where:   { id: appointmentId },
+            data:    { status },
+            include: appointmentIncludeShape,
+          });
+        })
+      : await prisma.appointment.update({
+          where:   { id: appointmentId },
+          data:    { status },
+          include: appointmentIncludeShape,
+        });
 
     emitBookingUpdated(updated);
 

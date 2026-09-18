@@ -7,6 +7,11 @@ export interface AppError extends Error {
   statusCode?: number;
   status?: string;
   isOperational?: boolean;
+  // Stable machine-readable failure reason (e.g. CUSTOMER_TIME_CONFLICT,
+  // SLOT_UNAVAILABLE, DUPLICATE_BOOKING) so a client can branch on it
+  // instead of string-matching `message`. See utils/AppError.ts.
+  code?: string;
+  existingBookingId?: string;
 }
 
 /**
@@ -81,6 +86,10 @@ export const errorHandler = (
     success: false,
     status,
     message: error.message,
+    // Both fields are omitted entirely when not set, so this is fully
+    // backward-compatible with clients that only ever read `message`.
+    ...(error.code && { error: error.code }),
+    ...(error.existingBookingId && { existingBookingId: error.existingBookingId }),
     requestId: req.requestId,
     ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
   });

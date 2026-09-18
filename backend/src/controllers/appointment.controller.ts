@@ -61,19 +61,27 @@ export class AppointmentController {
 
       const validated = createAppointmentSchema.parse(req.body);
 
-      const appointment = await AppointmentService.bookAppointment(
+      // Optional client-supplied idempotency key — see
+      // AppointmentService.bookAppointment's duplicate-guard comment. A
+      // caller that's unsure whether its previous request succeeded (e.g.
+      // a network timeout on the response) can safely retry with the same
+      // key and get the same booking back instead of a 409 or a duplicate.
+      const idempotencyKey = req.header("Idempotency-Key") || undefined;
+
+      const { appointment, isNew } = await AppointmentService.bookAppointment(
         req.user.userId,
         {
           service_id: validated.service_id,
           staff_id: validated.staff_id,
           appointment_date: validated.appointment_date,
           notes: validated.notes,
-        }
+        },
+        idempotencyKey
       );
 
-      res.status(201).json({
+      res.status(isNew ? 201 : 200).json({
         success: true,
-        message: "Appointment booked successfully!",
+        message: isNew ? "Appointment booked successfully!" : "Appointment already booked.",
         appointment,
       });
     } catch (error) {

@@ -29,6 +29,7 @@ router.patch("/:id/reschedule", authenticate, AppointmentController.rescheduleAp
 router.get("/my-change-requests", authenticate, ChangeRequestController.getMyRequests);
 router.post("/:id/request-edit", authenticate, ChangeRequestController.requestEdit);
 router.post("/:id/request-cancel", authenticate, ChangeRequestController.requestCancel);
+router.delete("/change-requests/:id/withdraw", authenticate, ChangeRequestController.withdraw);
 
 // ====================== ADMIN & STAFF PROTECTED ROUTES ======================
 router.get(

@@ -4,8 +4,19 @@ import { Prisma } from "@prisma/client";
 import { CreateStaffInput, UpdateStaffInput } from "../validators/staff.validator";
 import { AppError } from "../utils/AppError";
 import { recordAuditLog, diffFields, AuditActor } from "./adminAuditLog.service";
+import {
+  cloudinary,
+  extractCloudinaryPublicId,
+  verifyCloudinaryImage,
+  ALLOWED_IMAGE_FORMATS,
+} from "../config/cloudinary";
+import crypto from "crypto";
+import { emitStaffUpdated } from "../socket";
 
 type Tx = Prisma.TransactionClient;
+
+// Same "beauty-parlor/<feature>" namespacing GalleryService/HeroSlideService use.
+const STAFF_FOLDER = "beauty-parlor/staff";
 
 // Fields safe to hand back on the public GET /api/staff listing. Excludes
 // user_id — that's an internal linkage to a login account and has no
@@ -24,6 +35,43 @@ const PUBLIC_STAFF_SELECT = {
 } as const;
 
 export class StaffService {
+
+  // ── Generate signed Cloudinary upload URL ─────────────────────────────────
+  // Identical pattern to HeroSlideService/GalleryService — the frontend
+  // uploads the staff photo straight to Cloudinary with this signature, so
+  // the image bytes never pass through our server.
+  static async generateSignedUploadUrl() {
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+
+    if (!apiSecret || !apiKey || !cloudName) {
+      throw new AppError(
+        "Image uploads are not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.",
+        503
+      );
+    }
+
+    const timestamp = Math.round(Date.now() / 1000);
+    const folder = STAFF_FOLDER;
+    const allowedFormats = ALLOWED_IMAGE_FORMATS.join(",");
+
+    const paramsToSign = `allowed_formats=${allowedFormats}&folder=${folder}&timestamp=${timestamp}`;
+    const signature = crypto
+      .createHash("sha256")
+      .update(paramsToSign + apiSecret)
+      .digest("hex");
+
+    return {
+      signature,
+      timestamp,
+      apiKey,
+      cloudName,
+      folder,
+      allowedFormats,
+      uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+    };
+  }
 
   static async getAll() {
     return await prisma.staff.findMany({
@@ -70,17 +118,27 @@ export class StaffService {
       await StaffService.assertLinkable(data.user_id);
     }
 
+    // Re-verify the uploaded photo against Cloudinary's own record before
+    // trusting it — see verifyCloudinaryImage()'s comment in
+    // config/cloudinary for why the signed params alone aren't enough.
+    if (data.avatar) {
+      await verifyCloudinaryImage(data.avatar, STAFF_FOLDER);
+    }
+
     // Creating the staff row and promoting the linked user to STAFF must
     // succeed or fail together — a staff row pointing at a user who never
     // actually got the STAFF role (or vice versa) is exactly the broken
     // half-state that made staff scoping impossible before this existed.
-    return await prisma.$transaction(async (tx: Tx) => {
-      const staff = await tx.staff.create({
+    const staff = await prisma.$transaction(async (tx: Tx) => {
+      const created = await tx.staff.create({
         data: {
           name:           data.name,
           specialization: data.specialization,
           email:          data.email,
           phone:          data.phone,
+          bio:            data.bio,
+          avatar:         data.avatar,
+          avatarPublicId: data.avatarPublicId,
           isActive:       data.isActive ?? true,
           user_id:        data.user_id,
         },
@@ -90,8 +148,14 @@ export class StaffService {
         await tx.user.update({ where: { id: data.user_id }, data: { role: "STAFF" } });
       }
 
-      return staff;
+      return created;
     });
+
+    // Best-effort — a new staff member (if isActive) can now show up on the
+    // public About page's "Meet Our Team" section without a manual refresh.
+    emitStaffUpdated();
+
+    return staff;
   }
 
   static async update(id: string, data: UpdateStaffInput, actor?: AuditActor) {
@@ -105,6 +169,17 @@ export class StaffService {
       await StaffService.assertLinkable(data.user_id as string, id);
     }
 
+    // Photo handling mirrors HeroSlideService.updateSlide: `avatar` is
+    // omitted entirely for a text-only edit (existing photo untouched),
+    // `null` for the admin's explicit "Remove photo" action, or a genuinely
+    // new Cloudinary URL to replace the current one. Only a real
+    // replacement needs re-verifying against Cloudinary's own record.
+    const isRemovingAvatar = data.avatar === null;
+    const isReplacingAvatar = typeof data.avatar === "string" && data.avatar !== staff.avatar;
+    if (isReplacingAvatar) {
+      await verifyCloudinaryImage(data.avatar as string, STAFF_FOLDER);
+    }
+
     const result = await prisma.$transaction(async (tx: Tx) => {
       const updated = await tx.staff.update({
         where: { id },
@@ -113,8 +188,11 @@ export class StaffService {
           specialization: data.specialization,
           email:          data.email,
           phone:          data.phone,
+          bio:            data.bio,
           isActive:       data.isActive,
           ...(data.user_id !== undefined && { user_id: data.user_id }),
+          ...(isReplacingAvatar && { avatar: data.avatar, avatarPublicId: data.avatarPublicId }),
+          ...(isRemovingAvatar && { avatar: null, avatarPublicId: null }),
         },
       });
 
@@ -137,28 +215,49 @@ export class StaffService {
       return updated;
     });
 
+    // Clean up the old Cloudinary asset once the DB write has committed —
+    // a replaced or removed photo shouldn't linger as an orphaned upload.
+    if (isReplacingAvatar || isRemovingAvatar) {
+      const oldPublicId = staff.avatarPublicId ?? (staff.avatar ? extractCloudinaryPublicId(staff.avatar) : null);
+      if (oldPublicId) {
+        try {
+          await cloudinary.uploader.destroy(oldPublicId);
+        } catch (err: any) {
+          console.error(`⚠️  Failed to delete replaced/removed staff photo ${oldPublicId}:`, err.message);
+        }
+      }
+    }
+
     recordAuditLog({
       actor,
       action:     "STAFF_UPDATE",
       entityType: "Staff",
       entityId:   id,
       changes: diffFields(
-        { name: staff.name, specialization: staff.specialization, email: staff.email, phone: staff.phone, isActive: staff.isActive },
-        { name: data.name, specialization: data.specialization, email: data.email, phone: data.phone, isActive: data.isActive }
+        { name: staff.name, specialization: staff.specialization, email: staff.email, phone: staff.phone, bio: staff.bio, isActive: staff.isActive },
+        { name: data.name, specialization: data.specialization, email: data.email, phone: data.phone, bio: data.bio, isActive: data.isActive }
       ),
     }).catch(() => {});
+
+    // Best-effort — covers name/photo/bio edits AND an isActive flip, so
+    // the public About page (which only shows isActive staff) updates
+    // immediately either way.
+    emitStaffUpdated();
 
     return result;
   }
 
   // ✅ Soft delete — sets isActive to false instead of deleting from DB
-  // This preserves historical appointment records that reference this staff
+  // This preserves historical appointment records that reference this staff.
+  // The Cloudinary photo, if any, is deliberately left alone (not
+  // destroyed) — a soft-deleted staff member can be reactivated later via
+  // update(), and their photo should still be there when that happens.
   static async delete(id: string) {
     const staff = await prisma.staff.findUnique({ where: { id } });
     if (!staff) throw new AppError("Staff member not found", 404);
 
-    return await prisma.$transaction(async (tx: Tx) => {
-      const updated = await tx.staff.update({
+    const updated = await prisma.$transaction(async (tx: Tx) => {
+      const result = await tx.staff.update({
         where: { id },
         data: { isActive: false, user_id: null },
       });
@@ -172,8 +271,14 @@ export class StaffService {
         });
       }
 
-      return updated;
+      return result;
     });
+
+    // Best-effort — this staff member should disappear from the public
+    // About page immediately, same as any other isActive flip.
+    emitStaffUpdated();
+
+    return updated;
   }
 
   // ── Staff-scoping support ───────────────────────────────────────────────

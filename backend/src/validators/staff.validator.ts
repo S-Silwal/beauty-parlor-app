@@ -27,6 +27,22 @@ export const createStaffSchema = z.object({
     .optional()
     .or(z.literal('')),
 
+  // Shown on the admin Staff card and the public About page "Meet Our
+  // Team" bio paragraph.
+  bio: z
+    .string()
+    .max(500, "Bio cannot exceed 500 characters")
+    .optional()
+    .or(z.literal('')),
+
+  // avatarUrl/avatarPublicId come from the client after it has already
+  // uploaded to Cloudinary via the signed-upload flow (see
+  // StaffService.generateSignedUploadUrl) — same pattern as hero slides
+  // and service photos. Optional on create: a staff member can exist with
+  // no photo yet.
+  avatar: z.string().url("Invalid image URL").optional(),
+  avatarPublicId: z.string().optional(),
+
   isActive: z.boolean().default(true),
 
   // Links this staff record to an existing User account (which is promoted
@@ -40,6 +56,12 @@ export const updateStaffSchema = createStaffSchema.partial().extend({
   // Unlike create, update allows explicitly clearing the link (send
   // user_id: null) as well as setting or leaving it untouched (omit it).
   user_id: z.string().uuid("Invalid user ID format").nullable().optional(),
+
+  // Explicitly clearing the photo (the admin's "Remove photo" button)
+  // sends avatar: null — distinct from omitting it, which leaves the
+  // existing photo untouched. See StaffService.update().
+  avatar: z.string().url("Invalid image URL").nullable().optional(),
+  avatarPublicId: z.string().nullable().optional(),
 });
 
 export type CreateStaffInput = z.infer<typeof createStaffSchema>;

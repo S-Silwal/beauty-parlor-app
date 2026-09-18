@@ -8,3 +8,4 @@ export {
   emitChangeRequestCreated,
   emitChangeRequestResolved,
 } from "./handlers/booking.handler";
+export { emitStaffUpdated } from "./handlers/staff.handler";
