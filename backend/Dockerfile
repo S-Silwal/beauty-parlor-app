@@ -8,6 +8,10 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 FROM node:20-alpine AS builder
+# node:20-alpine ships no OpenSSL by default — Prisma's engine binaries are
+# dynamically linked against it, and `prisma generate`'s OS/libc detection
+# silently guesses wrong without it, so install it before touching Prisma.
+RUN apk add --no-cache openssl
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -19,6 +23,12 @@ RUN npx prisma generate
 RUN npm run build
 
 FROM node:20-alpine AS runner
+# Same reason as the builder stage — this is the image that actually runs
+# `prisma migrate deploy` at container start, so it's the stage that matters
+# most: without OpenSSL here the schema engine binary fails to start and
+# `migrate deploy` crash-loops with a "could not parse schema engine
+# response" error instead of a clear "OpenSSL missing" one.
+RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
