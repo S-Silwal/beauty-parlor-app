@@ -56,10 +56,11 @@ function getImage(name: string, category: string): string {
   return CATEGORY_FALLBACK[category] ?? FALLBACK;
 }
 
+// Purely the admin's own "Signature service" checkbox now (see the
+// Services tab in /admin) — no more name-keyword guessing, so a service
+// only carries this badge because an admin actually chose it there.
 function isSignature(s: Service) {
-  return s.is_popular ||
-    ['classic', 'signature', 'full body', 'anti-age', 'eyelash extension']
-      .some(k => s.name.toLowerCase().includes(k));
+  return !!s.is_popular;
 }
 
 export default function ServicesPage() {
@@ -381,7 +382,7 @@ export default function ServicesPage() {
                       {Number(service.price).toLocaleString('en-US')}
                     </div>
                   </div>
-                  <button className="sv-book" onClick={() => router.push('/booking')}>
+                  <button className="sv-book" onClick={() => router.push(`/booking?service=${service.id}`)}>
                     Book Now
                   </button>
                 </div>

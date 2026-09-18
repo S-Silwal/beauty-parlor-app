@@ -31,7 +31,10 @@ interface ChangeRequest {
   id: string;
   appointment_id: string;
   type: 'EDIT' | 'CANCEL';
-  status: 'PENDING' | 'APPROVED' | 'DECLINED';
+  status: 'PENDING' | 'APPROVED' | 'DECLINED' | 'WITHDRAWN';
+  requested_date?: string | null;
+  requestedStaff?: { id: string; name: string } | null;
+  requestedService?: { id: string; name: string } | null;
 }
 
 interface ServiceOption {
@@ -155,6 +158,7 @@ export default function CustomerDashboard() {
   const [cancelReason, setCancelReason]         = useState('');
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [cancelError, setCancelError]           = useState('');
+  const [withdrawingId, setWithdrawingId]       = useState<string | null>(null);
 
   // ── Route protection ──────────────────────────────────────────────────────
   // Wait for AuthContext to finish its async /api/auth/me check before
@@ -368,20 +372,11 @@ export default function CustomerDashboard() {
     const { date: origDate, slot: origSlot } = localDateAndSlot(booking.appointment_date);
     const origStaffId = booking.staff_id || '';
 
-    // Only send what actually changed — an empty payload has nothing for
-    // an admin to approve, and the backend requires at least one field.
-    const payload: { requested_date?: string; requested_staff_id?: string; requested_service_id?: string } = {};
-    if (editDate !== origDate || editSlot !== origSlot) {
-      payload.requested_date = `${editDate}T${editSlot}:00`;
-    }
-    if (editStaffId && editStaffId !== origStaffId) {
-      payload.requested_staff_id = editStaffId;
-    }
-    if (editServiceId && editServiceId !== booking.service_id) {
-      payload.requested_service_id = editServiceId;
-    }
+    const dateChanged    = editDate !== origDate || editSlot !== origSlot;
+    const staffChanged   = !!editStaffId && editStaffId !== origStaffId;
+    const serviceChanged = !!editServiceId && editServiceId !== booking.service_id;
 
-    if (Object.keys(payload).length === 0) {
+    if (!dateChanged && !staffChanged && !serviceChanged) {
       setEditError('Change the date, time, staff, or service before submitting.');
       return;
     }
@@ -392,6 +387,16 @@ export default function CustomerDashboard() {
     setEditSubmitting(true);
     setEditError('');
     try {
+      // Every edit goes through admin approval, however far away the
+      // appointment is — the live booking must not change until it's
+      // accepted. Only send what actually changed — an empty payload has
+      // nothing for an admin to approve, and the backend requires at
+      // least one field.
+      const payload: { requested_date?: string; requested_staff_id?: string; requested_service_id?: string } = {};
+      if (dateChanged) payload.requested_date = `${editDate}T${editSlot}:00`;
+      if (staffChanged) payload.requested_staff_id = editStaffId;
+      if (serviceChanged) payload.requested_service_id = editServiceId;
+
       const res = await api.requestEditBooking(booking.id, payload, token);
       if (res.success) {
         setChangeRequests(prev => ({ ...prev, [booking.id]: res.request }));
@@ -426,6 +431,9 @@ export default function CustomerDashboard() {
     setCancelSubmitting(true);
     setCancelError('');
     try {
+      // Cancelling, like editing, always goes through admin approval — the
+      // live booking stays on its original slot/status until an admin
+      // accepts this request.
       const res = await api.requestCancelBooking(bookingId, cancelReason.trim() || undefined, token);
       if (res.success) {
         setChangeRequests(prev => ({ ...prev, [bookingId]: res.request }));
@@ -440,14 +448,48 @@ export default function CustomerDashboard() {
     }
   };
 
+  // Pulls a still-PENDING request back before an admin has acted on it —
+  // the booking itself was never touched while it was pending, so there's
+  // nothing to undo there; this just removes the request.
+  const withdrawRequest = async (bookingId: string, requestId: string) => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) { router.push('/login'); return; }
+
+    setWithdrawingId(requestId);
+    try {
+      const res = await api.withdrawChangeRequest(requestId, token);
+      if (res.success) {
+        setChangeRequests(prev => {
+          const next = { ...prev };
+          delete next[bookingId];
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error('Failed to withdraw request', err);
+    } finally {
+      setWithdrawingId(null);
+    }
+  };
+
   // ── Derived data ──────────────────────────────────────────────────────────
   const now      = new Date();
+  // RESCHEDULED counts as an active, still-upcoming status here — it means
+  // an admin (directly, from Bookings) moved this booking to a new time,
+  // not that it's done. Approving a customer's own edit request now keeps
+  // the appointment CONFIRMED rather than writing RESCHEDULED (see
+  // ChangeRequestService.resolve), so a customer-initiated edit never hits
+  // this branch at all — this only matters for a possible future
+  // admin-direct-reschedule action. Bucketing by status alone here (the
+  // previous bug) buried a same-day-or-later RESCHEDULED booking in
+  // History even though it hadn't happened yet; date is what actually
+  // decides "upcoming" vs "history", not this one status.
   const upcoming = bookings.filter(b =>
-    ['PENDING', 'CONFIRMED'].includes(b.status) &&
+    ['PENDING', 'CONFIRMED', 'RESCHEDULED'].includes(b.status) &&
     new Date(b.appointment_date) >= now
   );
   const history  = bookings.filter(b =>
-    ['COMPLETED', 'CANCELLED', 'RESCHEDULED'].includes(b.status) ||
+    ['COMPLETED', 'CANCELLED'].includes(b.status) ||
     new Date(b.appointment_date) < now
   );
 
@@ -757,11 +799,37 @@ export default function CustomerDashboard() {
                   {canRequestChange && (
                     <div className="db-change">
                       {pendingRequest ? (
-                        <div className="db-change-pending">
-                          <span className="db-change-pending-dot" />
-                          <span className="db-change-pending-text">
-                            {pendingRequest.type === 'CANCEL' ? 'Cancellation' : 'Change'} requested — awaiting salon approval
-                          </span>
+                        <div className="db-change-pending" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span className="db-change-pending-dot" />
+                            <span className="db-change-pending-text">
+                              {pendingRequest.type === 'CANCEL' ? 'Cancellation requested' : 'Change requested'} — awaiting salon approval
+                            </span>
+                          </div>
+                          {/* Original booking is unchanged and still shown in the
+                              card above — this is just the proposed new slot, so
+                              the customer can see exactly what they asked for. */}
+                          {pendingRequest.type === 'EDIT' && (
+                            <p style={{ fontSize: 12, color: '#92400E', marginLeft: 17 }}>
+                              Requested:{' '}
+                              {pendingRequest.requested_date
+                                ? new Date(pendingRequest.requested_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+                                  ' · ' +
+                                  new Date(pendingRequest.requested_date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                                : 'same time'}
+                              {pendingRequest.requestedStaff && ` · ${pendingRequest.requestedStaff.name}`}
+                              {pendingRequest.requestedService && ` · ${pendingRequest.requestedService.name}`}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            className="db-change-link cancel"
+                            style={{ alignSelf: 'flex-start', marginLeft: 17 }}
+                            disabled={withdrawingId === pendingRequest.id}
+                            onClick={() => withdrawRequest(booking.id, pendingRequest.id)}
+                          >
+                            {withdrawingId === pendingRequest.id ? 'Withdrawing…' : 'Withdraw request'}
+                          </button>
                         </div>
                       ) : openEditId === booking.id ? (
                         <div>

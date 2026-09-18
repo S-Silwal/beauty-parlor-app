@@ -3,24 +3,22 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import {
+  SITE_ADDRESS_LINE1,
+  SITE_ADDRESS_LINE2,
+  SITE_MAPS_URL,
+  SITE_PHONE_DISPLAY,
+  SITE_PHONE_TEL,
+  SITE_EMAIL,
+  HOURS,
+  HOURS_SUMMARY,
+} from '@/lib/site-info';
 
 // The shop is physically in Indianapolis — "open now" has to be evaluated
 // against ITS local clock, not the visitor's (or the server's) timezone,
 // or someone browsing from another timezone would see the wrong status.
 const STORE_TIMEZONE = 'America/Indiana/Indianapolis';
 
-// Mirrors the hours actually printed in the Opening Hours column below —
-// if those ever change, update them here too. `display` feeds the
-// "Today · Sat 9:00 AM – 7:00 PM" line above the status badge.
-const HOURS: Record<string, { open: number; close: number; display: string }> = {
-  Mon: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
-  Tue: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
-  Wed: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
-  Thu: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
-  Fri: { open: 9 * 60,  close: 20 * 60, display: '9:00 AM – 8:00 PM' },
-  Sat: { open: 9 * 60,  close: 19 * 60, display: '9:00 AM – 7:00 PM' },
-  Sun: { open: 10 * 60, close: 17 * 60, display: '10:00 AM – 5:00 PM' },
-};
 
 interface StoreStatus {
   weekday: string;   // "Mon" … "Sun", in STORE_TIMEZONE
@@ -284,13 +282,13 @@ export default function Footer() {
                   </svg>
                 </span>
                 <a
-                  href="https://www.google.com/maps/search/?api=1&query=123+Placeholder+Lane+Anytown+ST+00000"
+                  href={SITE_MAPS_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="ft-contact-link"
                 >
-                  123 Placeholder Lane, Suite 100<br />
-                  Anytown, ST 00000
+                  {SITE_ADDRESS_LINE1}<br />
+                  {SITE_ADDRESS_LINE2}
                 </a>
               </div>
               {/* Dummy phone number for now. */}
@@ -300,8 +298,8 @@ export default function Footer() {
                     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.6 3.4 2 2 0 0 1 3.59 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.78a16 16 0 0 0 6.29 6.29l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
                   </svg>
                 </span>
-                <a href="tel:+15551234567" className="ft-contact-link">
-                  <strong>(555) 123-4567</strong>
+                <a href={`tel:${SITE_PHONE_TEL}`} className="ft-contact-link">
+                  <strong>{SITE_PHONE_DISPLAY}</strong>
                 </a>
               </div>
               {/* Dummy email for now. */}
@@ -312,8 +310,8 @@ export default function Footer() {
                     <polyline points="22,6 12,13 2,6"/>
                   </svg>
                 </span>
-                <a href="mailto:hello@example.com" className="ft-contact-link">
-                  <strong>hello@example.com</strong>
+                <a href={`mailto:${SITE_EMAIL}`} className="ft-contact-link">
+                  <strong>{SITE_EMAIL}</strong>
                 </a>
               </div>
             </div>
@@ -323,18 +321,14 @@ export default function Footer() {
           <div>
             <p className="ft-col-head">Opening Hours</p>
             <div className="ft-hours">
-              <div className="ft-hour-row">
-                <span className="ft-hour-day">Monday – Friday</span>
-                <span className="ft-hour-time">9:00 AM – 8:00 PM</span>
-              </div>
-              <div className="ft-hour-row">
-                <span className="ft-hour-day">Saturday</span>
-                <span className="ft-hour-time">9:00 AM – 7:00 PM</span>
-              </div>
-              <div className="ft-hour-row">
-                <span className="ft-hour-day">Sunday</span>
-                <span className="ft-hour-time">10:00 AM – 5:00 PM</span>
-              </div>
+              {HOURS_SUMMARY.map(({ label, time }) => (
+                <div className="ft-hour-row" key={label}>
+                  <span className="ft-hour-day">
+                    {label === 'Mon – Fri' ? 'Monday – Friday' : label}
+                  </span>
+                  <span className="ft-hour-time">{time}</span>
+                </div>
+              ))}
               <div suppressHydrationWarning>
                 <p className="ft-today">
                   Today · <strong>{status.weekday}</strong> {status.hoursLabel}

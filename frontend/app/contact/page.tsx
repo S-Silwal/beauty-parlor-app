@@ -1,6 +1,13 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  SITE_ADDRESS_LINE1,
+  SITE_ADDRESS_LINE2,
+  SITE_PHONE_DISPLAY,
+  SITE_EMAIL,
+  HOURS_SUMMARY,
+} from '@/lib/site-info';
 
 export default function ContactPage() {
   const [formData, setFormData] = useState({
@@ -246,9 +253,9 @@ export default function ContactPage() {
                 Our salon
               </h2>
               {[
-                { icon: '📍', text: '456 Glow Avenue, Suite 200\nIndianapolis, Indiana 46204' },
-                { icon: '📞', text: '(317) 0000000' },
-                { icon: '✉️', text: 'hello@crownandglow.com' },
+                { icon: '📍', text: `${SITE_ADDRESS_LINE1}\n${SITE_ADDRESS_LINE2}` },
+                { icon: '📞', text: SITE_PHONE_DISPLAY },
+                { icon: '✉️', text: SITE_EMAIL },
               ].map(({ icon, text }) => (
                 <div key={text} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                   <span style={{ fontSize: 14, marginTop: 1 }}>{icon}</span>
@@ -263,18 +270,12 @@ export default function ContactPage() {
                 Business hours
               </h2>
               <div className="cg-hours-grid">
-                {[
-                  ['Mon – Fri', '9:00 AM – 8:00 PM'],
-                  ['Saturday',  '9:00 AM – 7:00 PM'],
-                  ['Sunday',    '10:00 AM – 5:00 PM'],
-                ]
-              // ✅ Correct — key on the outer element
-.map(([day, time]) => (
-  <div key={day} style={{ display: 'flex', justifyContent: 'space-between' }}>
-    <span style={{ color: '#8B6244' }}>{day}</span>
-    <span style={{ color: '#2C1A0E', fontWeight: 500 }}>{time}</span>
-  </div>
-))}
+                {HOURS_SUMMARY.map(({ label, time }) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#8B6244' }}>{label}</span>
+                    <span style={{ color: '#2C1A0E', fontWeight: 500 }}>{time}</span>
+                  </div>
+                ))}
               </div>
             </div>
             {/* Divider */}
@@ -287,7 +288,7 @@ export default function ContactPage() {
                 <span style={{ display: 'block', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8B6244' }}>
                   Quick response on WhatsApp
                 </span>
-                <span style={{ fontSize: 14, fontWeight: 500, color: '#2C1A0E' }}>(317) 000-0000</span>
+                <span style={{ fontSize: 14, fontWeight: 500, color: '#2C1A0E' }}>{SITE_PHONE_DISPLAY}</span>
               </div>
               <span style={{ color: '#C9956B', fontSize: 16 }}>→</span>
             </div>

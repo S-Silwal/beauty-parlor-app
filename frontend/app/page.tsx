@@ -1,27 +1,8 @@
 // app/page.tsx
 import Link from 'next/link';
 import Image from 'next/image';
-
-const CATEGORIES = [
-  {
-    key: 'EYEBROW_LASH',
-    title: 'Brows & Lashes',
-    desc: 'Precision threading, lamination, and extensions that frame your eyes beautifully.',
-    img: 'https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?w=700&q=80',
-  },
-  {
-    key: 'WAXING',
-    title: 'Waxing',
-    desc: 'Smooth, long-lasting results with a gentle touch — from face to full body.',
-    img: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=700&q=80',
-  },
-  {
-    key: 'FACIAL_SKINCARE',
-    title: 'Facials & Skincare',
-    desc: 'Customized treatments that reveal your healthiest, most radiant skin.',
-    img: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=700&q=80',
-  },
-];
+import HeroSlider from '../components/HeroSlider';
+import type { HeroSlide } from '../components/HeroSlider';
 
 const VALUES = [
   {
@@ -59,8 +40,8 @@ const VALUES = [
 // Everything except the rating is still a fixed brand claim — only the
 // rating stat is backed by real data (see fetchRatingStat below).
 const BASE_STATS = [
-  { value: '12+', label: 'Years of Excellence' },
-  { value: '15+', label: 'Expert Treatments' },
+  { value: '12+', label: 'Years of exceptional services' },
+  { value: '15+', label: 'Premium Treatments' },
 ];
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
@@ -108,9 +89,63 @@ async function fetchPublicReviews(): Promise<PublicReview[]> {
   return [];
 }
 
+// Admin-managed homepage hero background(s) + copy — see
+// backend/src/services/heroSlide.service.ts. `no-store` matches the same
+// "always fresh" convention as fetchRatingStat/fetchPublicReviews above.
+async function fetchHeroSlides(): Promise<HeroSlide[]> {
+  try {
+    const res = await fetch(`${API}/api/hero-slides`, { cache: 'no-store' });
+    const data = await res.json();
+    if (data.success) return data.slides || [];
+  } catch {
+    // Backend unreachable — HeroSlider falls back to its built-in default
+    // slide rather than rendering nothing.
+  }
+  return [];
+}
+
+// Shape of a Service row as returned by GET /api/services — the same
+// admin-fed, active-only endpoint /services itself reads (see
+// backend/src/services/service.service.ts).
+interface FeaturedService {
+  id: string;
+  name: string;
+  description?: string | null;
+  duration: number;
+  price: number;
+  image?: string | null;
+  is_popular?: boolean;
+}
+
+const MAX_FEATURED_SERVICES = 4;
+
+// "Signature Treatments" section — 100% admin-driven. A service shows up
+// here only when an admin checks its "Signature service" box (is_popular)
+// in Admin → Services; unchecking it, or setting the service inactive,
+// removes it from here on the very next request (no-store, like every
+// other fetch on this page, so there's nothing to redeploy or revalidate).
+async function fetchFeaturedServices(): Promise<FeaturedService[]> {
+  try {
+    const res = await fetch(`${API}/api/services`, { cache: 'no-store' });
+    const data = await res.json();
+    if (data.success) {
+      const services: FeaturedService[] = data.services || [];
+      return services.filter(s => s.is_popular).slice(0, MAX_FEATURED_SERVICES);
+    }
+  } catch {
+    // Backend unreachable — the section below simply hides itself.
+  }
+  return [];
+}
+
 export default async function HomePage() {
-  const [ratingStat, reviews] = await Promise.all([fetchRatingStat(), fetchPublicReviews()]);
-  const STATS = [...BASE_STATS, ratingStat];
+  const [ratingStat, reviews, heroSlides, featuredServices] = await Promise.all([
+    fetchRatingStat(),
+    fetchPublicReviews(),
+    fetchHeroSlides(),
+    fetchFeaturedServices(),
+  ]);
+
   return (
     <>
       <style>{`
@@ -130,57 +165,6 @@ export default async function HomePage() {
           font-family: 'Jost', sans-serif;
         }
 
-        /* ── Hero ── */
-        .hm-hero {
-          position: relative; overflow: hidden;
-          min-height: 88vh; display: flex; align-items: center;
-          background: linear-gradient(160deg, rgba(20,16,12,.72) 0%, rgba(44,35,25,.55) 55%, rgba(184,154,106,.28) 100%),
-                      url('https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1800&q=85') center/cover;
-          padding: 120px 24px 100px;
-        }
-        .hm-hero-inner { max-width: 640px; position: relative; z-index: 1; }
-        /* Small decorative mark replacing the old location eyebrow — signals
-           "start of content" without repeating the brand name (the Navbar
-           already carries it) or a location line no longer needed. */
-        .hm-hero-rule {
-          display: block; width: 46px; height: 2px;
-          background: var(--gold-lt); margin-bottom: 30px;
-        }
-        .hm-h1 {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: clamp(46px, 7vw, 80px); font-weight: 300;
-          color: #F7F3EE; line-height: 1.08; margin: 0 0 26px;
-        }
-        .hm-h1 em { font-style: italic; color: var(--gold-lt); }
-        .hm-hero-p {
-          font-size: 17px; font-weight: 300; color: #D9D1C7;
-          max-width: 460px; line-height: 1.85; margin: 0 0 44px;
-        }
-        .hm-hero-actions { display: flex; gap: 16px; flex-wrap: wrap; }
-        .hm-btn-primary {
-          display: inline-block; background: var(--gold); color: var(--charcoal);
-          font-family: 'Jost', sans-serif; font-size: 12px; font-weight: 700;
-          letter-spacing: .14em; text-transform: uppercase;
-          padding: 17px 36px; border-radius: 2px; text-decoration: none;
-          transition: background .22s, transform .22s;
-        }
-        .hm-btn-primary:hover { background: var(--gold-lt); transform: translateY(-2px); }
-        /* Single hero CTA — since it now stands alone (no paired primary
-           button), it gets more presence than the old ghost secondary:
-           a wider outline, a sliding arrow on hover, and a full gold fill
-           on hover instead of a faint tint. */
-        .hm-hero-cta {
-          display: inline-flex; align-items: center; gap: 10px;
-          background: transparent; color: #F7F3EE;
-          border: 1.5px solid var(--gold-lt);
-          font-family: 'Jost', sans-serif; font-size: 12px; font-weight: 600;
-          letter-spacing: .16em; text-transform: uppercase;
-          padding: 18px 38px; border-radius: 2px; text-decoration: none;
-          transition: background .25s ease, color .25s ease, gap .25s ease;
-        }
-        .hm-hero-cta svg { width: 14px; height: 14px; transition: transform .25s ease; }
-        .hm-hero-cta:hover { background: var(--gold-lt); color: var(--charcoal); gap: 14px; }
-        .hm-hero-cta:hover svg { transform: translateX(3px); }
 
         /* ── Stats bar ── */
         .hm-stats { background: var(--charcoal); padding: 56px 24px; }
@@ -197,6 +181,17 @@ export default async function HomePage() {
           font-size: 10px; font-weight: 600; letter-spacing: .14em;
           text-transform: uppercase; color: var(--soft);
         }
+        /* The one clickable stat — opens /reviews. Kept visually close to
+           the plain stat tiles beside it, just with an obvious hover state
+           and pointer cursor so it doesn't blend in as static text. */
+        .hm-stat-link {
+          display: block; text-decoration: none; color: inherit;
+          border-radius: 4px; margin: -8px; padding: 8px;
+          transition: background .2s ease;
+        }
+        .hm-stat-link:hover { background: rgba(212,184,150,.08); }
+        .hm-stat-link:hover .hm-stat-val { color: #F7F3EE; }
+        .hm-stat-link:hover .hm-stat-label { color: var(--gold-lt); }
 
         /* ── Section shared ── */
         .hm-container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
@@ -239,10 +234,26 @@ export default async function HomePage() {
           margin: 0 0 10px; color: var(--charcoal);
         }
         .hm-service-desc { font-size: 14px; font-weight: 300; color: var(--mid); line-height: 1.75; margin: 0 0 16px; }
-        .hm-service-link {
-          font-size: 11px; font-weight: 700; letter-spacing: .1em;
-          text-transform: uppercase; color: var(--gold);
+        /* Shown only when a service has no admin-uploaded photo yet — a
+           neutral placeholder, never a substitute stock photo. */
+        .hm-service-img-empty { width: 100%; height: 100%; background: var(--cream-md); }
+        .hm-service-foot {
+          display: flex; align-items: center; justify-content: space-between;
+          gap: 12px; padding-top: 16px; border-top: 1px solid var(--cream-md);
         }
+        .hm-service-meta { display: flex; flex-direction: column; gap: 4px; }
+        .hm-service-duration { font-size: 11px; color: var(--soft); }
+        .hm-service-price {
+          font-family: 'Cormorant Garamond', serif; font-size: 20px; font-weight: 500;
+          color: var(--charcoal);
+        }
+        .hm-service-book {
+          font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+          color: var(--charcoal); background: transparent; border: 1.5px solid var(--gold);
+          border-radius: 2px; padding: 10px 18px; text-decoration: none;
+          transition: background .2s ease, color .2s ease;
+        }
+        .hm-service-book:hover { background: var(--gold); color: #fff; }
 
         /* ── Values ── */
         .hm-values-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
@@ -297,72 +308,73 @@ export default async function HomePage() {
           .hm-stats-grid { grid-template-columns: repeat(2, 1fr); gap: 28px; }
           .hm-section { padding: 72px 0; }
         }
-        @media (max-width: 480px) {
-          .hm-hero { padding: 96px 20px 80px; min-height: 76vh; }
-        }
       `}</style>
 
       <div className="hm">
 
-        {/* ── Hero ── */}
-        <section className="hm-hero">
-          <div className="hm-hero-inner">
-            <span className="hm-hero-rule" aria-hidden="true" />
-            <h1 className="hm-h1">Where beauty<br />meets <em>ritual.</em></h1>
-            <p className="hm-hero-p">
-              Premium beauty treatments crafted with precision, care, and artistry —
-              for every version of you.
-            </p>
-            <div className="hm-hero-actions">
-              <Link href="/services" className="hm-hero-cta">
-                Explore Services
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </Link>
-            </div>
-          </div>
-        </section>
+        {/* ── Hero (admin-managed, see components/HeroSlider.tsx) ── */}
+        <HeroSlider slides={heroSlides} />
 
         {/* ── Stats ── */}
         <section className="hm-stats">
           <div className="hm-stats-grid">
-            {STATS.map(s => (
+            {BASE_STATS.map(s => (
               <div key={s.label}>
                 <div className="hm-stat-val">{s.value}</div>
                 <div className="hm-stat-label">{s.label}</div>
               </div>
             ))}
+            {/* Only stat that's interactive — opens the full, verified
+                reviews list. Everything else in this bar is unchanged. */}
+            <Link href="/reviews" className="hm-stat-link" aria-label="Read customer reviews">
+              <div className="hm-stat-val">{ratingStat.value}</div>
+              <div className="hm-stat-label">{ratingStat.label} →</div>
+            </Link>
           </div>
         </section>
 
-        {/* ── Signature Services ── */}
-        <section className="hm-section">
-          <div className="hm-container">
-            <div className="hm-section-header">
-              <p className="hm-kicker">What We Offer</p>
-              <h2 className="hm-section-title">Signature <em>Treatments</em></h2>
-              <p className="hm-section-sub">
-                From precision brow shaping to restorative facials, every service is
-                tailored to bring out your natural radiance.
-              </p>
+        {/* ── Signature Services ── admin-driven: shows the services an
+             admin has checked "Signature service" for in Admin → Services
+             (is_popular), same records /services lists. Hides entirely
+             when there are none — no placeholder content. ── */}
+        {featuredServices.length > 0 && (
+          <section className="hm-section">
+            <div className="hm-container">
+              <div className="hm-section-header">
+                <p className="hm-kicker">What We Offer</p>
+                <h2 className="hm-section-title">Signature <em>Treatments</em></h2>
+                <p className="hm-section-sub">
+                  From precision brow shaping to restorative facials, every service is
+                  tailored to bring out your natural radiance.
+                </p>
+              </div>
+              <div className="hm-services-grid">
+                {featuredServices.map(s => (
+                  <article key={s.id} className="hm-service-card">
+                    <div className="hm-service-img-wrap">
+                      {s.image ? (
+                        <Image src={s.image} alt={s.name} fill sizes="(max-width: 900px) 100vw, 33vw" className="hm-service-img" />
+                      ) : (
+                        <div className="hm-service-img-empty" aria-hidden="true" />
+                      )}
+                    </div>
+                    <div className="hm-service-body">
+                      <h3 className="hm-service-title">{s.name}</h3>
+                      {s.description && <p className="hm-service-desc">{s.description}</p>}
+                      <div className="hm-service-foot">
+                        <div className="hm-service-meta">
+                          <span className="hm-service-duration">⏱ {s.duration} min</span>
+                          <span className="hm-service-price">${Number(s.price).toLocaleString('en-US')}</span>
+                        </div>
+                        <Link href={`/booking?service=${s.id}`} className="hm-service-book">Book Now</Link>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
             </div>
-            <div className="hm-services-grid">
-              {CATEGORIES.map(c => (
-                <Link key={c.key} href="/services" className="hm-service-card">
-                  <div className="hm-service-img-wrap">
-                    <Image src={c.img} alt={c.title} fill sizes="(max-width: 900px) 100vw, 33vw" className="hm-service-img" />
-                  </div>
-                  <div className="hm-service-body">
-                    <h3 className="hm-service-title">{c.title}</h3>
-                    <p className="hm-service-desc">{c.desc}</p>
-                    <span className="hm-service-link">View Treatments →</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* ── Values ── */}
         <section className="hm-section" style={{ paddingTop: 0, background: 'var(--card-bg)' }}>

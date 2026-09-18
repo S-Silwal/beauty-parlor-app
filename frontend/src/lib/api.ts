@@ -50,11 +50,29 @@ export const api = {
   },
   // ====================== SERVICES ======================
   getServices: async () => {
-    const res = await fetch(`${API_BASE}/api/appointments/services`);
+    // Was hitting /api/appointments/services — a lean, booking-dropdown-only
+    // projection (see AppointmentService.getAllServices) that never selects
+    // `image` or `is_popular`. That's why the public Services page never
+    // reflected an admin's uploaded photo or Signature flag even though
+    // name/price/duration/category matched. /api/services is the same
+    // canonical, admin-fed, active-only list the Admin dashboard itself
+    // reads and writes — one source of truth for everyone.
+    const res = await fetch(`${API_BASE}/api/services`);
     return res.json();
   },
 getStaff: async () => {                    // ← Added this
     const res = await fetch(`${API_BASE}/api/appointments/staff`);
+    return res.json();
+  },
+
+  // The public, canonical staff roster — id/name/specialization/bio/avatar
+  // for every isActive staff member, admin-fed via the Staff Management
+  // panel. Unlike getStaff() above (a lean {id,name,specialization}
+  // projection meant only for the booking staff-picker), this is what the
+  // About page's "Meet Our Team" section reads, so a photo/bio saved in
+  // the dashboard shows up here with no separate content to keep in sync.
+  getTeam: async () => {
+    const res = await fetch(`${API_BASE}/api/staff`);
     return res.json();
   },
   // ====================== AVAILABLE SLOTS ======================
@@ -91,6 +109,31 @@ getStaff: async () => {                    // ← Added this
     return res.json();
   },
 
+  // Instant, customer-facing — only succeeds outside the cancellation cutoff
+  // window (backend rejects with a 409 telling the caller to use the
+  // change-request flow instead when too close to the appointment time).
+  cancelAppointment: async (appointmentId: string, token: string) => {
+    const res = await fetch(`${API_BASE}/api/appointments/${appointmentId}/cancel`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+    });
+    return res.json();
+  },
+  rescheduleAppointment: async (
+    appointmentId: string,
+    data: { appointment_date: string; staff_id?: string; notes?: string },
+    token: string
+  ) => {
+    const res = await fetch(`${API_BASE}/api/appointments/${appointmentId}/reschedule`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      credentials: "include",
+      body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
   // ====================== CHANGE REQUESTS (customer) ======================
   // These never change the booking directly — they submit a request that
   // only takes effect once an admin approves it.
@@ -118,6 +161,16 @@ getStaff: async () => {                    // ← Added this
   },
   getMyChangeRequests: async (token: string) => {
     const res = await fetch(`${API_BASE}/api/appointments/my-change-requests`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+    });
+    return res.json();
+  },
+  // Only works while the request is still PENDING — once an admin has
+  // acted on it, the customer can't take it back.
+  withdrawChangeRequest: async (requestId: string, token: string) => {
+    const res = await fetch(`${API_BASE}/api/appointments/change-requests/${requestId}/withdraw`, {
+      method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
       credentials: "include",
     });

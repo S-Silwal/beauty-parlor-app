@@ -30,6 +30,8 @@ interface Staff {
   specialization?: string;
   email?: string;
   phone?: string;
+  bio?: string;
+  avatar?: string;
   isActive: boolean;
   // Only present on the admin listing (GET /api/staff/admin) — the public
   // one never exposes a staff member's linked login account.
@@ -55,6 +57,20 @@ interface GalleryImage {
   created_at: string;
 }
 
+// Admin-side shape of a homepage hero slide (see GET /api/hero-slides/admin).
+interface HeroSlideItem {
+  id: string;
+  imageUrl: string;
+  imagePublicId?: string | null;
+  title: string;
+  titleAccent?: string | null;
+  description: string;
+  ctaLabel: string;
+  ctaHref: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
 type ServiceCategory = 'EYEBROW_LASH' | 'WAXING' | 'FACIAL_SKINCARE';
 
 interface Service {
@@ -65,6 +81,7 @@ interface Service {
   duration: number;
   price: number | string; // Prisma Decimal comes back as a string over JSON
   image?: string | null;
+  is_popular?: boolean; // drives the "Signature" badge on the public Services page
   isActive: boolean;
 }
 
@@ -98,7 +115,7 @@ const SERVICE_CATEGORIES: { value: ServiceCategory; label: string }[] = [
   { value: 'FACIAL_SKINCARE', label: 'Facials & Skincare' },
 ];
 
-type AdminTab = 'overview' | 'bookings' | 'requests' | 'staff' | 'gallery' | 'services';
+type AdminTab = 'overview' | 'bookings' | 'requests' | 'staff' | 'gallery' | 'services' | 'hero';
 
 interface ChangeRequest {
   id: string;
@@ -144,9 +161,15 @@ export default function AdminPanel() {
 
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
-  const [staffForm, setStaffForm]         = useState({ name: '', specialization: '', email: '', phone: '', isActive: true, user_id: '' });
+  const [staffForm, setStaffForm]         = useState({ name: '', specialization: '', email: '', phone: '', bio: '', avatar: '', isActive: true, user_id: '' });
   const [staffLoading, setStaffLoading]   = useState(false);
   const [accounts, setAccounts]           = useState<Account[]>([]);
+  const [selectedStaffFile, setSelectedStaffFile] = useState<File | null>(null);
+  const [staffPreviewUrl, setStaffPreviewUrl]     = useState<string | null>(null);
+  const [staffPhotoRemoved, setStaffPhotoRemoved] = useState(false);
+  const [staffUploading, setStaffUploading]       = useState(false);
+  const [staffUploadProgress, setStaffUploadProgress] = useState(0);
+  const staffFileInputRef                         = useRef<HTMLInputElement>(null);
 
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [galleryForm, setGalleryForm]           = useState({ alt_text: '', category: 'brows_lashes' });
@@ -159,7 +182,7 @@ export default function AdminPanel() {
   const [showServiceForm, setShowServiceForm]   = useState(false);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [serviceForm, setServiceForm]           = useState({
-    name: '', category: 'EYEBROW_LASH' as ServiceCategory, description: '', duration: '', price: '', image: '',
+    name: '', category: 'EYEBROW_LASH' as ServiceCategory, description: '', duration: '', price: '', image: '', is_popular: false,
   });
   const [serviceLoading, setServiceLoading]         = useState(false);
   const [selectedServiceFile, setSelectedServiceFile] = useState<File | null>(null);
@@ -167,6 +190,19 @@ export default function AdminPanel() {
   const [serviceUploading, setServiceUploading]       = useState(false);
   const [serviceUploadProgress, setServiceUploadProgress] = useState(0);
   const serviceFileInputRef                           = useRef<HTMLInputElement>(null);
+
+  const [heroSlides, setHeroSlides]           = useState<HeroSlideItem[]>([]);
+  const [showHeroForm, setShowHeroForm]       = useState(false);
+  const [editingHeroId, setEditingHeroId]     = useState<string | null>(null);
+  const [heroForm, setHeroForm]               = useState({
+    title: '', titleAccent: '', description: '', ctaLabel: '', ctaHref: '', isActive: true,
+  });
+  const [heroLoading, setHeroLoading]         = useState(false);
+  const [selectedHeroFile, setSelectedHeroFile] = useState<File | null>(null);
+  const [heroPreviewUrl, setHeroPreviewUrl]   = useState<string | null>(null);
+  const [heroUploading, setHeroUploading]     = useState(false);
+  const [heroUploadProgress, setHeroUploadProgress] = useState(0);
+  const heroFileInputRef                      = useRef<HTMLInputElement>(null);
 
   // Wait for AuthContext's async auth check before deciding to redirect —
   // otherwise a genuinely logged-in admin gets bounced to /login on refresh
@@ -241,6 +277,17 @@ export default function AdminPanel() {
     } catch (err) { console.error('Failed to fetch services', err); }
   };
 
+  const fetchHeroSlides = async () => {
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/hero-slides/admin`, {
+        headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
+      });
+      const data = await res.json();
+      if (data.success) setHeroSlides(data.slides || []);
+    } catch (err) { console.error('Failed to fetch hero slides', err); }
+  };
+
   const fetchChangeRequests = async (highlightId?: string) => {
     try {
       const token = api.getToken();
@@ -260,7 +307,7 @@ export default function AdminPanel() {
     if (!user || !isAdmin) return;
 
     (async () => {
-      await Promise.all([fetchBookings(), fetchStaff(), fetchAccounts(), fetchGallery(), fetchServices(), fetchChangeRequests()]);
+      await Promise.all([fetchBookings(), fetchStaff(), fetchAccounts(), fetchGallery(), fetchServices(), fetchChangeRequests(), fetchHeroSlides()]);
     })();
 
     const socket = initSocket();
@@ -272,11 +319,15 @@ export default function AdminPanel() {
     // A request was just resolved (by this admin or another) — drop it from
     // the pending list and refresh the underlying booking it touched.
     socket.on('changeRequestResolved', () => { fetchChangeRequests(); fetchBookings(); });
+    // Another admin session (or this one, on a different tab) saved a staff
+    // change — keep this panel's list in sync without a manual refresh.
+    socket.on('staffUpdated', () => fetchStaff());
     return () => {
       socket.off('bookingCreated');
       socket.off('bookingUpdated');
       socket.off('changeRequestCreated');
       socket.off('changeRequestResolved');
+      socket.off('staffUpdated');
     };
   }, [user, isAdmin]);
 
@@ -325,11 +376,15 @@ export default function AdminPanel() {
     }
   };
 
-  const emptyStaffForm = { name: '', specialization: '', email: '', phone: '', isActive: true, user_id: '' };
+  const emptyStaffForm = { name: '', specialization: '', email: '', phone: '', bio: '', avatar: '', isActive: true, user_id: '' };
 
   const openAddStaff = () => {
     setEditingStaffId(null);
     setStaffForm(emptyStaffForm);
+    setSelectedStaffFile(null);
+    setStaffPreviewUrl(null);
+    setStaffPhotoRemoved(false);
+    if (staffFileInputRef.current) staffFileInputRef.current.value = '';
     setShowStaffForm(true);
   };
 
@@ -340,9 +395,15 @@ export default function AdminPanel() {
       specialization: s.specialization || '',
       email: s.email || '',
       phone: s.phone || '',
+      bio: s.bio || '',
+      avatar: s.avatar || '',
       isActive: s.isActive,
       user_id: s.user_id || '',
     });
+    setSelectedStaffFile(null);
+    setStaffPreviewUrl(null);
+    setStaffPhotoRemoved(false);
+    if (staffFileInputRef.current) staffFileInputRef.current.value = '';
     setShowStaffForm(true);
   };
 
@@ -350,6 +411,31 @@ export default function AdminPanel() {
     setShowStaffForm(false);
     setEditingStaffId(null);
     setStaffForm(emptyStaffForm);
+    setSelectedStaffFile(null);
+    setStaffPreviewUrl(null);
+    setStaffPhotoRemoved(false);
+    if (staffFileInputRef.current) staffFileInputRef.current.value = '';
+  };
+
+  const handleStaffFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { showToast('Only JPG, PNG and WebP images are allowed', 'error'); return; }
+    if (file.size > 10 * 1024 * 1024) { showToast('Image must be under 10MB', 'error'); return; }
+    setSelectedStaffFile(file);
+    setStaffPreviewUrl(URL.createObjectURL(file));
+    setStaffPhotoRemoved(false);
+  };
+
+  // Explicitly clears the photo (distinct from just never having picked
+  // one) — handleSaveStaff sends `avatar: null` for this so the backend
+  // deletes the Cloudinary asset instead of leaving it untouched.
+  const handleRemoveStaffPhoto = () => {
+    setSelectedStaffFile(null);
+    setStaffPreviewUrl(null);
+    setStaffForm(p => ({ ...p, avatar: '' }));
+    setStaffPhotoRemoved(true);
+    if (staffFileInputRef.current) staffFileInputRef.current.value = '';
   };
 
   // Accounts an admin can pick from for the "linked login" dropdown: not
@@ -367,14 +453,55 @@ export default function AdminPanel() {
     try {
       const token   = api.getToken();
       const isEdit  = !!editingStaffId;
-      const { user_id, ...rest } = staffForm;
-      const payload = {
+      let avatarUrl: string | undefined;
+      let avatarPublicId: string | undefined;
+
+      // Only touch Cloudinary if the admin picked a new photo — a text-only
+      // edit never re-uploads or replaces the existing photo.
+      if (selectedStaffFile) {
+        setStaffUploading(true); setStaffUploadProgress(20);
+        const sigRes  = await fetch(`${API}/api/staff/signed-url`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+        const sigData = await sigRes.json();
+        if (!sigData.success) throw new Error('Failed to get upload signature');
+        const { signature, timestamp, apiKey, folder, allowedFormats, uploadUrl } = sigData;
+        setStaffUploadProgress(45);
+        const formData = new FormData();
+        formData.append('file', selectedStaffFile);
+        formData.append('signature', signature);
+        formData.append('timestamp', String(timestamp));
+        formData.append('api_key', apiKey);
+        formData.append('folder', folder);
+        // Must match exactly what the backend signed — Cloudinary rejects
+        // the request if the params sent don't match the signed string.
+        formData.append('allowed_formats', allowedFormats);
+        const uploadRes  = await fetch(uploadUrl, { method: 'POST', body: formData });
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) throw new Error(uploadData.error?.message || 'Cloudinary upload failed');
+        avatarUrl = uploadData.secure_url;
+        avatarPublicId = uploadData.public_id;
+        setStaffUploadProgress(85);
+      }
+
+      const { user_id, avatar: _avatar, ...rest } = staffForm;
+      const payload: Record<string, unknown> = {
         ...rest,
         // Create: omit entirely when unset (undefined isn't sent by
         // JSON.stringify). Update: send null to explicitly clear an
         // existing link — the backend treats that as "unlink".
         ...(user_id ? { user_id } : isEdit ? { user_id: null } : {}),
       };
+      if (avatarUrl) {
+        // New photo uploaded — replace.
+        payload.avatar = avatarUrl;
+        payload.avatarPublicId = avatarPublicId;
+      } else if (staffPhotoRemoved) {
+        // Admin explicitly removed the photo — clear it.
+        payload.avatar = null;
+        payload.avatarPublicId = null;
+      }
+      // Otherwise: omit `avatar` entirely so an edit leaves the existing
+      // photo untouched, and a create with no photo picked stays photo-less.
+
       const res     = await fetch(`${API}/api/staff${isEdit ? `/${editingStaffId}` : ''}`, {
         method: isEdit ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -388,8 +515,11 @@ export default function AdminPanel() {
         fetchStaff();
         fetchAccounts();
       } else showToast(data.message || `Failed to ${isEdit ? 'update' : 'add'} staff`, 'error');
-    } catch { showToast(`Failed to ${editingStaffId ? 'update' : 'add'} staff`, 'error'); }
-    finally { setStaffLoading(false); }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : `Failed to ${editingStaffId ? 'update' : 'add'} staff`, 'error');
+    } finally {
+      setStaffLoading(false); setStaffUploading(false); setStaffUploadProgress(0);
+    }
   };
 
   const handleRemoveStaff = async (id: string, name: string) => {
@@ -405,7 +535,7 @@ export default function AdminPanel() {
     } catch { showToast('Failed to remove staff', 'error'); }
   };
 
-  const emptyServiceForm = { name: '', category: 'EYEBROW_LASH' as ServiceCategory, description: '', duration: '', price: '', image: '' };
+  const emptyServiceForm = { name: '', category: 'EYEBROW_LASH' as ServiceCategory, description: '', duration: '', price: '', image: '', is_popular: false };
 
   const openAddService = () => {
     setEditingServiceId(null);
@@ -424,6 +554,7 @@ export default function AdminPanel() {
       duration: String(sv.duration),
       price: String(sv.price),
       image: sv.image || '',
+      is_popular: sv.is_popular ?? false,
     });
     setSelectedServiceFile(null);
     setServicePreviewUrl(null);
@@ -491,6 +622,7 @@ export default function AdminPanel() {
           description: serviceForm.description || undefined,
           duration:    Number(serviceForm.duration),
           price:       Number(serviceForm.price),
+          is_popular:  serviceForm.is_popular,
           ...(imageUrl ? { image: imageUrl } : {}),
         }),
       });
@@ -582,6 +714,157 @@ export default function AdminPanel() {
     } catch { showToast('Failed to remove image', 'error'); }
   };
 
+  const emptyHeroForm = { title: '', titleAccent: '', description: '', ctaLabel: '', ctaHref: '', isActive: true };
+
+  const openAddHero = () => {
+    setEditingHeroId(null);
+    setHeroForm(emptyHeroForm);
+    setSelectedHeroFile(null);
+    setHeroPreviewUrl(null);
+    setShowHeroForm(true);
+  };
+
+  const openEditHero = (h: HeroSlideItem) => {
+    setEditingHeroId(h.id);
+    setHeroForm({
+      title: h.title,
+      titleAccent: h.titleAccent || '',
+      description: h.description,
+      ctaLabel: h.ctaLabel,
+      ctaHref: h.ctaHref,
+      isActive: h.isActive,
+    });
+    setSelectedHeroFile(null);
+    // Show the slide's current background so the live preview below isn't
+    // blank while editing text-only fields.
+    setHeroPreviewUrl(h.imageUrl);
+    setShowHeroForm(true);
+  };
+
+  const closeHeroForm = () => {
+    setShowHeroForm(false);
+    setEditingHeroId(null);
+    setHeroForm(emptyHeroForm);
+    setSelectedHeroFile(null);
+    setHeroPreviewUrl(null);
+    if (heroFileInputRef.current) heroFileInputRef.current.value = '';
+  };
+
+  const handleHeroFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { showToast('Only JPG, PNG and WebP images are allowed', 'error'); return; }
+    if (file.size > 10 * 1024 * 1024) { showToast('Image must be under 10MB', 'error'); return; }
+    setSelectedHeroFile(file);
+    setHeroPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleSaveHero = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const isEdit = !!editingHeroId;
+    if (!isEdit && !selectedHeroFile) { showToast('Please select a background photo', 'error'); return; }
+    if (!heroForm.title.trim() || !heroForm.description.trim() || !heroForm.ctaLabel.trim() || !heroForm.ctaHref.trim()) return;
+
+    setHeroLoading(true);
+    try {
+      const token = api.getToken();
+      let imageUrl: string | undefined;
+      let imagePublicId: string | undefined;
+
+      // Only touch Cloudinary if the admin picked a new photo — a text-only
+      // edit never re-uploads or replaces the existing background.
+      if (selectedHeroFile) {
+        setHeroUploading(true); setHeroUploadProgress(20);
+        const sigRes  = await fetch(`${API}/api/hero-slides/signed-url`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+        const sigData = await sigRes.json();
+        if (!sigData.success) throw new Error('Failed to get upload signature');
+        const { signature, timestamp, apiKey, folder, allowedFormats, uploadUrl } = sigData;
+        setHeroUploadProgress(45);
+        const formData = new FormData();
+        formData.append('file', selectedHeroFile);
+        formData.append('signature', signature);
+        formData.append('timestamp', String(timestamp));
+        formData.append('api_key', apiKey);
+        formData.append('folder', folder);
+        // Must match exactly what the backend signed — Cloudinary rejects
+        // the request if the params sent don't match the signed string.
+        formData.append('allowed_formats', allowedFormats);
+        const uploadRes  = await fetch(uploadUrl, { method: 'POST', body: formData });
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) throw new Error(uploadData.error?.message || 'Cloudinary upload failed');
+        imageUrl = uploadData.secure_url;
+        imagePublicId = uploadData.public_id;
+        setHeroUploadProgress(85);
+      }
+
+      const res = await fetch(`${API}/api/hero-slides${isEdit ? `/${editingHeroId}` : ''}`, {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({
+          title:        heroForm.title,
+          titleAccent:  heroForm.titleAccent || undefined,
+          description:  heroForm.description,
+          ctaLabel:     heroForm.ctaLabel,
+          ctaHref:      heroForm.ctaHref,
+          isActive:     heroForm.isActive,
+          ...(imageUrl ? { imageUrl, imagePublicId } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isEdit ? 'Hero slide updated' : 'Hero slide added');
+        closeHeroForm();
+        fetchHeroSlides();
+      } else showToast(data.message || `Failed to ${isEdit ? 'update' : 'add'} hero slide`, 'error');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'add'} hero slide`, 'error');
+    } finally {
+      setHeroLoading(false); setHeroUploading(false); setHeroUploadProgress(0);
+    }
+  };
+
+  const handleToggleHeroActive = async (h: HeroSlideItem) => {
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/hero-slides/${h.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({ isActive: !h.isActive }),
+      });
+      const data = await res.json();
+      if (data.success) { showToast(h.isActive ? 'Slide deactivated' : 'Slide activated'); fetchHeroSlides(); }
+      else showToast(data.message || 'Failed to update slide', 'error');
+    } catch { showToast('Failed to update slide', 'error'); }
+  };
+
+  const handleReorderHero = async (id: string, direction: 'up' | 'down') => {
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/hero-slides/${id}/reorder`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({ direction }),
+      });
+      const data = await res.json();
+      if (data.success) setHeroSlides(data.slides || []);
+      else showToast(data.message || 'Failed to reorder slides', 'error');
+    } catch { showToast('Failed to reorder slides', 'error'); }
+  };
+
+  const handleDeleteHero = async (id: string, title: string) => {
+    if (!confirm(`Remove the "${title}" hero slide? This deletes its photo permanently.`)) return;
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/hero-slides/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+      const data  = await res.json();
+      if (data.success) { showToast('Hero slide removed'); fetchHeroSlides(); }
+      else showToast(data.message || 'Failed to remove hero slide', 'error');
+    } catch { showToast('Failed to remove hero slide', 'error'); }
+  };
+
   const revenue = bookings
     .filter(b => b.status === 'COMPLETED' && b.payment_status === 'PAID')
     .reduce((sum, b) => sum + Number(b.total_price), 0);
@@ -607,6 +890,8 @@ export default function AdminPanel() {
         .ap-header-inner{max-width:1280px;margin:0 auto;height:80px;display:flex;align-items:center;justify-content:space-between;}
         .ap-logo{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:500;color:#F7F3EE;letter-spacing:.01em;}
         .ap-logo em{font-style:italic;color:#D4B896;}
+        .ap-home-link{font-size:12px;font-weight:600;letter-spacing:.04em;color:#D4B896;text-decoration:none;padding:6px 12px;border:1px solid rgba(212,184,150,.35);border-radius:999px;transition:background .15s,color .15s;white-space:nowrap;}
+        .ap-home-link:hover{background:rgba(212,184,150,.14);color:#F7F3EE;}
         .ap-user-block{display:flex;align-items:center;gap:28px;}
         .ap-user-id{display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
         .ap-user-name{font-size:15px;line-height:1;color:#EFE3D0;font-weight:600;letter-spacing:.01em;}
@@ -729,6 +1014,15 @@ export default function AdminPanel() {
           .ap-body{padding:24px 16px 60px;}
           .ap-tabs-inner{padding:0 16px;}
         }
+        /* Hero tab — compact live preview reusing the homepage hero's own
+           gradient/typography so what the admin sees here matches what
+           goes live (see components/HeroSlider.tsx). */
+        .ap-hero-preview{position:relative;border-radius:6px;overflow:hidden;background-size:cover;background-position:center;background-color:#2C2825;padding:32px 24px;margin-top:20px;min-height:190px;display:flex;flex-direction:column;justify-content:center;}
+        .ap-hero-preview-rule{display:block;width:32px;height:2px;background:#D4B896;margin-bottom:14px;}
+        .ap-hero-preview-h1{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#F7F3EE;line-height:1.15;margin:0 0 10px;}
+        .ap-hero-preview-h1 em{font-style:italic;color:#D4B896;}
+        .ap-hero-preview-p{font-size:12px;font-weight:300;color:#D9D1C7;max-width:360px;line-height:1.6;margin:0 0 16px;}
+        .ap-hero-preview-cta{display:inline-block;width:fit-content;background:transparent;color:#F7F3EE;border:1px solid #D4B896;font-family:'Jost',sans-serif;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:9px 18px;border-radius:2px;}
       `}</style>
 
       {toast && (
@@ -756,7 +1050,14 @@ export default function AdminPanel() {
       {/* Header */}
       <div className="ap-header">
         <div className="ap-header-inner">
-          <div className="ap-logo">Crown <em>&amp; Glow</em></div>
+          <div style={{ display:'flex', alignItems:'center', gap:24 }}>
+            <Link href="/" className="ap-logo" style={{ textDecoration:'none' }}>
+              Crown <em>&amp; Glow</em>
+            </Link>
+            <Link href="/" className="ap-home-link">
+              ← Back to Home
+            </Link>
+          </div>
           <div style={{ textAlign:'right' }}>
             <p className="ap-user-name">{user.name}</p>
             <p className="ap-user-role">Administrator</p>
@@ -774,6 +1075,7 @@ export default function AdminPanel() {
             { key:'staff',    label:'Staff' },
             { key:'services', label:`Services (${services.length})` },
             { key:'gallery',  label:`Gallery (${gallery.length})` },
+            { key:'hero',     label:`Hero (${heroSlides.length})` },
           ] as { key: AdminTab; label: string; badge?: number }[]).map(t => (
             <button key={t.key} className={`ap-tab${activeTab === t.key ? ' on' : ''}`} onClick={() => setActiveTab(t.key)}>
               {t.label}
@@ -1089,12 +1391,21 @@ export default function AdminPanel() {
                 <div className="ap-staff-grid">
                   {staff.map(s => (
                     <div key={s.id} className="ap-staff-card">
+                      {s.avatar && (
+                        <div className="ap-staff-thumb">
+                          <Image src={s.avatar} alt={s.name} fill sizes="(max-width: 900px) 100vw, 33vw" />
+                        </div>
+                      )}
                       <h3 className="ap-staff-name">{s.name}</h3>
                       {s.specialization && <p className="ap-staff-spec">{s.specialization}</p>}
                       <div className="ap-staff-info">
                         {s.email && <p>✉️ {s.email}</p>}
                         {s.phone && <p>📞 {s.phone}</p>}
+                        {s.bio && <p style={{ marginTop:6, lineHeight:1.6 }}>{s.bio}</p>}
                         <p style={{ marginTop:6 }}>Status: <span style={{ color:s.isActive ? '#065F46' : '#991B1B', fontWeight:600 }}>{s.isActive ? 'Active' : 'Inactive'}</span></p>
+                        <p style={{ marginTop:2, fontSize:12, color:'#9E968E' }}>
+                          {s.isActive ? 'Shown on the public About page' : 'Hidden from the public About page'}
+                        </p>
                         <p style={{ marginTop:6 }}>
                           Portal login:{' '}
                           {s.user ? (
@@ -1234,6 +1545,51 @@ export default function AdminPanel() {
             </>
           )}
 
+          {/* ── Hero ── */}
+          {activeTab === 'hero' && (
+            <>
+              <div className="ap-section-head">
+                <h2 className="ap-section-title">Homepage Hero <em style={{ fontStyle:'italic', color:'#B89A6A' }}>Slides</em></h2>
+                <button className="ap-add-btn" onClick={openAddHero}>+ Add Slide</button>
+              </div>
+              <p style={{ fontSize:13, color:'#9E968E', marginTop:-12, marginBottom:24, maxWidth:640, lineHeight:1.6 }}>
+                {/* How to change the homepage background, in plain terms for whoever is running this panel. */}
+                Change the homepage background here — upload a new photo, edit the headline or button, and save. No code change or redeploy needed.
+                With two or more active slides the homepage automatically rotates through them; with exactly one, it displays as a static hero.
+              </p>
+              {heroSlides.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'60px 24px', background:'#fff', border:'1px solid #EDE6DC', borderRadius:6 }}>
+                  <p style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:24, color:'#9E968E', marginBottom:12 }}>No hero slides yet</p>
+                  <button className="ap-add-btn" onClick={openAddHero}>Add your first slide</button>
+                </div>
+              ) : (
+                <div className="ap-staff-grid">
+                  {heroSlides.map((h, i) => (
+                    <div key={h.id} className="ap-staff-card">
+                      <div className="ap-staff-thumb">
+                        <Image src={h.imageUrl} alt={h.title} fill sizes="(max-width: 900px) 100vw, 33vw" />
+                      </div>
+                      <h3 className="ap-staff-name">{h.title}{h.titleAccent ? ` ${h.titleAccent}` : ''}</h3>
+                      <p className="ap-staff-spec">Slide {i + 1} of {heroSlides.length} &middot; Order {h.sortOrder}</p>
+                      <div className="ap-staff-info">
+                        <p>{h.description}</p>
+                        <p style={{ marginTop:6 }}>Button: <strong>{h.ctaLabel}</strong> &rarr; {h.ctaHref}</p>
+                        <p style={{ marginTop:6 }}>Status: <span style={{ color:h.isActive ? '#065F46' : '#991B1B', fontWeight:600 }}>{h.isActive ? 'Active' : 'Inactive'}</span></p>
+                      </div>
+                      <div className="ap-staff-actions" style={{ flexWrap:'wrap' }}>
+                        <button className="ap-staff-edit" onClick={() => handleReorderHero(h.id, 'up')} disabled={i === 0} title="Move earlier">&uarr;</button>
+                        <button className="ap-staff-edit" onClick={() => handleReorderHero(h.id, 'down')} disabled={i === heroSlides.length - 1} title="Move later">&darr;</button>
+                        <button className="ap-staff-edit" onClick={() => handleToggleHeroActive(h)}>{h.isActive ? 'Deactivate' : 'Activate'}</button>
+                        <button className="ap-staff-edit" onClick={() => openEditHero(h)}>Edit</button>
+                        <button className="ap-staff-remove" onClick={() => handleDeleteHero(h.id, h.title)}>Remove</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
         </div>
       )}
 
@@ -1260,6 +1616,49 @@ export default function AdminPanel() {
                 <input className="ap-form-input" type="tel" value={staffForm.phone} placeholder="(317) 555-0187" onChange={e => setStaffForm(p => ({ ...p, phone:e.target.value }))}/>
               </div>
               <div className="ap-form-field">
+                <label className="ap-form-label">Bio</label>
+                <textarea
+                  className="ap-form-input"
+                  rows={3}
+                  value={staffForm.bio}
+                  placeholder="A couple of sentences for the About page — experience, specialty, what clients love."
+                  onChange={e => setStaffForm(p => ({ ...p, bio:e.target.value }))}
+                  style={{ resize:'vertical' }}
+                />
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Photo</label>
+                <div className="ap-drop-zone" onClick={() => staffFileInputRef.current?.click()}>
+                  <input ref={staffFileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleStaffFileSelect} style={{ display:'none' }}/>
+                  {staffPreviewUrl || staffForm.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- may be a local blob: preview, not always an optimizable remote image
+                    <img src={staffPreviewUrl || staffForm.avatar} alt="Preview" className="ap-preview"/>
+                  ) : (
+                    <>
+                      <div className="ap-drop-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+                          <polyline points="21,15 16,10 5,21"/>
+                        </svg>
+                      </div>
+                      <p className="ap-drop-text">Click to select photo</p>
+                      <p className="ap-drop-hint">JPG, PNG or WebP · Max 10MB</p>
+                    </>
+                  )}
+                </div>
+                {(staffPreviewUrl || staffForm.avatar) && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveStaffPhoto}
+                    style={{ marginTop:8, background:'none', border:'none', color:'#991B1B', fontSize:12, fontWeight:600, cursor:'pointer', padding:0 }}
+                  >
+                    Remove photo
+                  </button>
+                )}
+                {selectedStaffFile && <p style={{ fontSize:12, color:'#9E968E', marginTop:8, textAlign:'center' }}>{selectedStaffFile.name} · {(selectedStaffFile.size/1024/1024).toFixed(2)}MB</p>}
+                {staffUploading && <div className="ap-progress"><div className="ap-progress-bar" style={{ width:`${staffUploadProgress}%` }}/></div>}
+              </div>
+              <div className="ap-form-field">
                 <label className="ap-form-label">Portal Login</label>
                 <select
                   className="ap-form-select"
@@ -1280,7 +1679,7 @@ export default function AdminPanel() {
               {editingStaffId && (
                 <label className="ap-form-checkbox">
                   <input type="checkbox" checked={staffForm.isActive} onChange={e => setStaffForm(p => ({ ...p, isActive:e.target.checked }))}/>
-                  <span>Active (visible to customers for booking)</span>
+                  <span>Active (visible to customers for booking, and shown on the public About page)</span>
                 </label>
               )}
               <div className="ap-form-actions">
@@ -1347,11 +1746,100 @@ export default function AdminPanel() {
                 {selectedServiceFile && <p style={{ fontSize:12, color:'#9E968E', marginTop:8, textAlign:'center' }}>{selectedServiceFile.name} · {(selectedServiceFile.size/1024/1024).toFixed(2)}MB</p>}
                 {serviceUploading && <div className="ap-progress"><div className="ap-progress-bar" style={{ width:`${serviceUploadProgress}%` }}/></div>}
               </div>
+              <label className="ap-form-checkbox">
+                <input type="checkbox" checked={serviceForm.is_popular} onChange={e => setServiceForm(p => ({ ...p, is_popular:e.target.checked }))}/>
+                <span>Signature service (shows the &quot;Signature&quot; badge on the public Services page)</span>
+              </label>
               <div className="ap-form-actions">
                 <button type="submit" className="ap-form-submit" disabled={serviceLoading}>
                   {serviceLoading ? (editingServiceId ? 'Saving…' : 'Adding…') : (editingServiceId ? 'Save Changes' : 'Add Service')}
                 </button>
                 <button type="button" className="ap-form-cancel" onClick={closeServiceForm}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Hero Slide Modal */}
+      {showHeroForm && (
+        <div className="ap-form-overlay" onClick={closeHeroForm}>
+          <div className="ap-form-card" onClick={e => e.stopPropagation()} style={{ maxWidth:560 }}>
+            <h2 className="ap-form-title">{editingHeroId ? 'Edit Hero Slide' : 'Add Hero Slide'}</h2>
+            <form onSubmit={handleSaveHero}>
+              <div className="ap-form-field" style={{ marginTop:0 }}>
+                <label className="ap-form-label">Background Photo {editingHeroId ? '' : '*'}</label>
+                <div className="ap-drop-zone" onClick={() => heroFileInputRef.current?.click()}>
+                  <input ref={heroFileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleHeroFileSelect} style={{ display:'none' }}/>
+                  {heroPreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- may be a local blob: preview or an already-uploaded remote image
+                    <img src={heroPreviewUrl} alt="Preview" className="ap-preview"/>
+                  ) : (
+                    <>
+                      <div className="ap-drop-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+                          <polyline points="21,15 16,10 5,21"/>
+                        </svg>
+                      </div>
+                      <p className="ap-drop-text">Click to select photo</p>
+                      <p className="ap-drop-hint">JPG, PNG or WebP &middot; Max 10MB</p>
+                    </>
+                  )}
+                </div>
+                {selectedHeroFile && <p style={{ fontSize:12, color:'#9E968E', marginTop:8, textAlign:'center' }}>{selectedHeroFile.name} &middot; {(selectedHeroFile.size/1024/1024).toFixed(2)}MB</p>}
+                {heroUploading && <div className="ap-progress"><div className="ap-progress-bar" style={{ width:`${heroUploadProgress}%` }}/></div>}
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Title *</label>
+                <input className="ap-form-input" type="text" required value={heroForm.title} placeholder="Where beauty" onChange={e => setHeroForm(p => ({ ...p, title:e.target.value }))}/>
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Accent Line (italic, optional)</label>
+                <input className="ap-form-input" type="text" value={heroForm.titleAccent} placeholder="meets ritual." onChange={e => setHeroForm(p => ({ ...p, titleAccent:e.target.value }))}/>
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Description *</label>
+                <input className="ap-form-input" type="text" required value={heroForm.description} placeholder="Premium beauty treatments crafted with precision, care, and artistry — for every version of you." onChange={e => setHeroForm(p => ({ ...p, description:e.target.value }))}/>
+              </div>
+              <div className="ap-form-field" style={{ display:'flex', gap:12 }}>
+                <div style={{ flex:1 }}>
+                  <label className="ap-form-label">Button Label *</label>
+                  <input className="ap-form-input" type="text" required value={heroForm.ctaLabel} placeholder="Explore Services" onChange={e => setHeroForm(p => ({ ...p, ctaLabel:e.target.value }))}/>
+                </div>
+                <div style={{ flex:1 }}>
+                  <label className="ap-form-label">Button Link *</label>
+                  <input className="ap-form-input" type="text" required value={heroForm.ctaHref} placeholder="/services" onChange={e => setHeroForm(p => ({ ...p, ctaHref:e.target.value }))}/>
+                </div>
+              </div>
+              {editingHeroId && (
+                <label className="ap-form-checkbox">
+                  <input type="checkbox" checked={heroForm.isActive} onChange={e => setHeroForm(p => ({ ...p, isActive:e.target.checked }))}/>
+                  <span>Active (shown in the homepage rotation)</span>
+                </label>
+              )}
+
+              {/* Live preview — same gradient/typography the homepage hero uses. */}
+              <div
+                className="ap-hero-preview"
+                style={{ backgroundImage: `linear-gradient(160deg, rgba(20,16,12,.72) 0%, rgba(44,35,25,.55) 55%, rgba(184,154,106,.28) 100%), url('${heroPreviewUrl || ''}')` }}
+              >
+                <span className="ap-hero-preview-rule"/>
+                <p className="ap-hero-preview-h1">
+                  {heroForm.title || 'Where beauty'}
+                  {heroForm.titleAccent ? (<><br/><em>{heroForm.titleAccent}</em></>) : null}
+                </p>
+                <p className="ap-hero-preview-p">
+                  {heroForm.description || 'Premium beauty treatments crafted with precision, care, and artistry — for every version of you.'}
+                </p>
+                <span className="ap-hero-preview-cta">{heroForm.ctaLabel || 'Explore Services'}</span>
+              </div>
+
+              <div className="ap-form-actions">
+                <button type="submit" className="ap-form-submit" disabled={heroLoading}>
+                  {heroLoading ? (editingHeroId ? 'Saving…' : 'Adding…') : (editingHeroId ? 'Save Changes' : 'Add Slide')}
+                </button>
+                <button type="button" className="ap-form-cancel" onClick={closeHeroForm}>Cancel</button>
               </div>
             </form>
           </div>

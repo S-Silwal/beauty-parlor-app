@@ -1,10 +1,10 @@
 // app/booking/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 // `new Date().toISOString()` reports the UTC calendar date, which runs
 // ahead of local date in the evening in any negative-UTC-offset timezone
@@ -29,8 +29,17 @@ interface BookableStaff {
 }
 
 export default function BookingPage() {
+  return (
+    <Suspense fallback={null}>
+      <BookingForm />
+    </Suspense>
+  );
+}
+
+function BookingForm() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [services, setServices]               = useState<BookableService[]>([]);
   const [staff, setStaff]                     = useState<BookableStaff[]>([]);
@@ -60,14 +69,27 @@ export default function BookingPage() {
           api.getServices(),
           api.getStaff(),
         ]);
-        if (servicesRes.success) setServices(servicesRes.services || []);
+        const loadedServices: BookableService[] = servicesRes.success ? (servicesRes.services || []) : [];
+        if (servicesRes.success) setServices(loadedServices);
         if (staffRes?.success) setStaff(staffRes.staff || []);
+
+        // Deep-link from a "Book Now" on a specific service card (homepage
+        // Signature Treatments, /services, ...) — e.g. /booking?service=<id>.
+        // Only preselects an id that's actually in the freshly-fetched
+        // (already active-only, per GET /api/services) list — a missing,
+        // invalid, or inactive id is silently ignored and the dropdown
+        // stays on its normal empty "Choose a service" state. The dropdown
+        // remains fully editable afterward.
+        const requestedId = searchParams.get('service');
+        if (requestedId && loadedServices.some(s => s.id === requestedId)) {
+          setSelectedService(requestedId);
+        }
       } catch (err) {
         console.error('Failed to load data', err);
       }
     };
     loadData();
-  }, []);
+  }, [searchParams]);
 
   const loadAvailableSlots = useCallback(async () => {
     setLoading(true);
@@ -95,6 +117,11 @@ export default function BookingPage() {
   }, [selectedDate, selectedStaff, loadAvailableSlots]);
 
   const handleBookAppointment = async () => {
+    // Belt-and-suspenders against a double-click/double-submit slipping in
+    // before React re-renders the button as disabled — the `disabled`
+    // prop below already covers the normal case, this guards the gap.
+    if (bookingLoading) return;
+
     if (!selectedService || !selectedDate || !selectedSlot) {
       setError('Please select service, date and time slot');
       return;
@@ -128,6 +155,18 @@ export default function BookingPage() {
           `✅ Appointment booked successfully for ${formatDate(selectedDate)} at ${formatTime(selectedSlot)}!`
         );
         setNotes('');
+        // The slot this customer just took is no longer available to
+        // itself for a second click, and admin's Recent Bookings picks
+        // this up via the bookingCreated socket event — but this tab's
+        // own slot list can go stale (e.g. duration-based neighboring
+        // slots), so refresh it against the server's view.
+        loadAvailableSlots();
+      } else if (res.error === 'CUSTOMER_TIME_CONFLICT') {
+        setError('You already have an appointment at this time.');
+      } else if (res.error === 'DUPLICATE_BOOKING') {
+        setError('You already have this exact appointment booked.');
+      } else if (res.error === 'SLOT_UNAVAILABLE') {
+        setError(res.message || 'That time is no longer available. Please choose a different slot.');
       } else {
         setError(res.message || 'Booking failed');
       }
@@ -281,6 +320,10 @@ export default function BookingPage() {
               <p>
                 <strong>Service:</strong>{' '}
                 {services.find(s => s.id === selectedService)?.name}
+              </p>
+              <p>
+                <strong>Duration:</strong>{' '}
+                {services.find(s => s.id === selectedService)?.duration} min
               </p>
               <p>
                 <strong>Date:</strong>{' '}
