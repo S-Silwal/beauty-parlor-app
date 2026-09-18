@@ -53,10 +53,14 @@ export const rateLimitConfig = {
     max:      15,
   },
 
-  // Appointment booking
+  // Appointment booking — capped low in production to prevent abuse. No
+  // test exercises this limiter itself (unlike auth's rate-limit.test.ts),
+  // and the booking test suite legitimately creates more than 8 bookings
+  // across its cases sharing one IP, so raise the ceiling under
+  // NODE_ENV=test to avoid cross-test 429s.
   appointmentBooking: {
     windowMs: 60 * 60 * 1000,  // 1 hour
-    max:      8,
+    max:      process.env.NODE_ENV === "test" ? 1000 : 8,
   },
 
 } as const;

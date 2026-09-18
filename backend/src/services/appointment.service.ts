@@ -170,6 +170,43 @@ export async function runSerializable<T>(fn: (tx: Tx) => Promise<T>): Promise<T>
   throw new AppError("Failed to schedule appointment", 500);
 }
 
+// Serializable isolation is supposed to make Postgres abort one side of any
+// genuine conflict at commit time (see runSerializable()'s comment) — but
+// that relies on Postgres's predicate-lock machinery actually recognizing
+// the two transactions' read/write sets as conflicting. In practice, a
+// customer-level race across two *different* staff members (each request
+// touches a different staff_id, so the only shared predicate is
+// user_id = customerId) has been observed to slip past that detection:
+// both transactions' assertSlotAvailable() reads can complete before
+// either has written its row, so neither sees the other and both proceed
+// to create an appointment — exactly the double-booking this file exists
+// to prevent. Rather than trust predicate-lock detection for this shape of
+// conflict, take an explicit lock on the resources the check-then-write is
+// actually protecting (the customer, and the staff member if one was
+// selected) before running the check. The second transaction then
+// genuinely blocks here until the first commits or rolls back, and — since
+// the lock is transaction-scoped (`_xact_lock`, released automatically at
+// commit/rollback) — sees the first transaction's committed row once it
+// resumes, so assertSlotAvailable() correctly returns 409 instead of both
+// requests racing each other to 201. Keys are sorted before locking so two
+// requests that need the same pair of locks (e.g. rescheduling into a slot
+// that also touches another appointment's staff) always acquire them in
+// the same order, which rules out a lock-ordering deadlock between them.
+async function lockBookingResources(
+  tx: Tx,
+  customerId: string,
+  staffId?: string | null
+): Promise<void> {
+  const resources = [
+    `customer:${customerId}`,
+    ...(staffId ? [`staff:${staffId}`] : []),
+  ].sort();
+
+  for (const resource of resources) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${resource}))`;
+  }
+}
+
 export class AppointmentService {
 
   // `pagination` is optional and opt-in (see utils/pagination.ts) — omit it
@@ -394,6 +431,11 @@ export class AppointmentService {
     // Serializable transaction — see runSerializable()'s comment for why
     // that's required (two concurrent identical POSTs must not both pass).
     const { appointment, isNew } = await runSerializable(async (tx) => {
+      // Serialize all booking attempts involving this customer (and this
+      // staff member, if one was selected) — see lockBookingResources()'s
+      // comment for why this is needed on top of Serializable isolation.
+      await lockBookingResources(tx, userId, data.staff_id);
+
       // Exact-duplicate guard: same customer + same service + same start.
       // This is what a double-click / double-submit (or a client blindly
       // retrying a request it isn't sure succeeded) actually produces.
@@ -517,6 +559,7 @@ export class AppointmentService {
     // Overlap check + update happen inside one Serializable transaction —
     // see runSerializable()'s comment for why that's required.
     const updated = await runSerializable(async (tx) => {
+      await lockBookingResources(tx, userId, staffId);
       await assertSlotAvailable(tx, { customerId: userId, staffId, newStart, newEnd, excludeAppointmentId: appointmentId });
 
       return tx.appointment.update({
@@ -625,6 +668,7 @@ export class AppointmentService {
       ? await runSerializable(async (tx) => {
           const newStart = new Date(appointment.appointment_date);
           const newEnd   = new Date(newStart.getTime() + appointment.duration * 60 * 1000);
+          await lockBookingResources(tx, appointment.user_id, appointment.staff_id);
           await assertSlotAvailable(tx, {
             customerId:           appointment.user_id,
             staffId:              appointment.staff_id,
