@@ -9,7 +9,21 @@ import { authConfig } from "../config/auth";
 import { emailConfig } from "../config/email";
 import { AppError } from "../utils/AppError";
 
-const resend = new Resend(emailConfig.resendApiKey);
+// Lazily construct the Resend client instead of at module load time — the
+// server must be able to start (and this file must be importable in tests)
+// even when RESEND_API_KEY isn't set, since email is an optional feature
+// (see validateEnv.ts). Matches the pattern already used in
+// notifications/email.service.ts.
+let resendInstance: Resend | null = null;
+function getResend(): Resend {
+  if (!resendInstance) {
+    if (!emailConfig.resendApiKey) {
+      throw new Error("RESEND_API_KEY environment variable is not set");
+    }
+    resendInstance = new Resend(emailConfig.resendApiKey);
+  }
+  return resendInstance;
+}
 
 export type AuthEmailEvent = "EMAIL_VERIFICATION" | "PASSWORD_RESET" | "MFA_OTP";
 
@@ -43,7 +57,7 @@ async function sendAuthEmail(
   });
 
   try {
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from: emailConfig.fromEmail,
       to,
       subject,
