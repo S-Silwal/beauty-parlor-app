@@ -4,7 +4,6 @@
   "description": "Backend for Lumina Beauty Parlor",
   "main": "dist/server.js",
   "scripts": {
-    "postinstall": "prisma generate",
     "dev": "ts-node src/server.ts",
     "dev:watch": "nodemon --exec ts-node src/server.ts",
     "build": "tsc",
