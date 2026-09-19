@@ -601,6 +601,10 @@ export default function CustomerDashboard() {
           .db-card-top { flex-direction:column; align-items:flex-start; }
           .db-card-right { align-items:flex-start; text-align:left; }
           .db-edit-grid { grid-template-columns:1fr; }
+          .db-next { padding:22px 20px; }
+          .db-card { padding:20px; }
+          .db-stat { padding:18px 20px; }
+          .db-stat-value { font-size:30px; }
         }
       `}</style>
 
