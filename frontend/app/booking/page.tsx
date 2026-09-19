@@ -203,8 +203,8 @@ function BookingForm() {
   if (authLoading || !user) return null;
 
   return (
-    <div className="max-w-5xl mx-auto p-6 pt-10">
-      <h1 className="text-4xl font-semibold text-center mb-10 text-gray-800">
+    <div className="max-w-5xl mx-auto p-4 sm:p-6 pt-6 sm:pt-10">
+      <h1 className="text-3xl sm:text-4xl font-semibold text-center mb-8 sm:mb-10 text-gray-800">
         Book Your Appointment
       </h1>
 
@@ -233,7 +233,7 @@ function BookingForm() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-10">
+      <div className="grid lg:grid-cols-2 gap-6 sm:gap-10">
 
         {/* ── Left: Form ── */}
         <div className="space-y-8">
@@ -285,7 +285,7 @@ function BookingForm() {
           {/* Time slots */}
           <div>
             <label className="block text-sm font-medium mb-2">Available Time Slots</label>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
               {loading ? (
                 <p className="col-span-4 text-gray-500">Loading available slots...</p>
               ) : availableSlots.length > 0 ? (
@@ -312,7 +312,7 @@ function BookingForm() {
         </div>
 
         {/* ── Right: Booking Summary ── */}
-        <div className="bg-white p-8 rounded-3xl shadow border h-fit sticky top-6">
+        <div className="bg-white p-5 sm:p-8 rounded-3xl shadow border h-fit lg:sticky lg:top-6">
           <h3 className="text-2xl font-semibold mb-6">Booking Summary</h3>
 
           {selectedService ? (

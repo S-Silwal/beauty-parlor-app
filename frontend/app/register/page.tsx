@@ -190,6 +190,7 @@ export default function RegisterPage() {
           .rg-vbody{padding:24px 28px;}
           .rg-panel{padding:36px 20px;}
           .rg-panel::before{display:none;}
+          .rg-title{font-size:34px;}
         }
       `}</style>
 

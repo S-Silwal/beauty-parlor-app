@@ -308,6 +308,16 @@ export default async function HomePage() {
           .hm-stats-grid { grid-template-columns: repeat(2, 1fr); gap: 28px; }
           .hm-section { padding: 72px 0; }
         }
+        @media (max-width: 480px) {
+          .hm-container { padding: 0 18px; }
+          .hm-section { padding: 52px 0; }
+          .hm-stats { padding: 40px 18px; }
+          .hm-stats-grid { gap: 20px 16px; }
+          .hm-stat-val { font-size: 34px; }
+          .hm-banner { padding: 64px 18px; }
+          .hm-service-body { padding: 20px 20px 22px; }
+          .hm-review-card { padding: 24px 20px; }
+        }
       `}</style>
 
       <div className="hm">

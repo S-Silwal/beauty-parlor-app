@@ -78,6 +78,9 @@ export default function GalleryPage() {
           border-bottom: 1px solid #EDE6DC;
           box-shadow: 0 2px 12px rgba(44,40,37,.05);
         }
+        @media (max-width: 480px) {
+          .gl-tabbar { top: 64px; }
+        }
         .gl-tabbar-inner {
           max-width: 1200px; margin: 0 auto;
           padding: 16px 24px;
@@ -176,6 +179,7 @@ export default function GalleryPage() {
           width: 34px; height: 34px; font-size: 16px;
           cursor: pointer; display: flex; align-items: center; justify-content: center;
           transition: border-color .2s, color .2s;
+          z-index: 2;
         }
         .gl-lb-close:hover { border-color: #B89A6A; color: #D4B896; }
         .gl-lb-arrow {
@@ -202,6 +206,14 @@ export default function GalleryPage() {
         @media (max-width: 640px) {
           .gl-lb-arrow { display: none; }
           .gl-tabbar-inner { flex-wrap: nowrap; }
+          .gl-lightbox { padding: 16px; }
+          /* Above the image on mobile, above the -44px offset would push
+             partway off-screen with only 16px of padding, so it sits
+             inside the top-right corner of the image instead. */
+          .gl-lb-close {
+            top: 8px; right: 8px;
+            background: rgba(20,16,12,.55); backdrop-filter: blur(4px);
+          }
         }
       `}</style>
 

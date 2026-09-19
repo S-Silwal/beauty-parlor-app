@@ -247,6 +247,9 @@ export default function AboutPage() {
         }
         @media (max-width: 600px) {
           .ab-hero { padding: 80px 20px 72px; }
+          .ab-banner { padding: 64px 20px; }
+          .ab-team-header { margin-bottom: 40px; }
+          .ab-member-img-wrap { height: 240px; }
         }
       `}</style>
 
