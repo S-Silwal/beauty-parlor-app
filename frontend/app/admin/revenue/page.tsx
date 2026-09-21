@@ -446,6 +446,9 @@ export default function RevenuePage() {
           .rv-controls { flex-direction: column; align-items: stretch; }
           .rv-seg-btn { flex: 1; padding: 11px 10px; }
           .rv-card { padding: 20px 18px; }
+          .rv-hero-value { font-size: 40px; }
+          .rv-chart-area { height: 170px; }
+          .rv-scope { flex-wrap: wrap; }
         }
       `}</style>
 

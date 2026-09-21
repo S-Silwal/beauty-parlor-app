@@ -1009,10 +1009,26 @@ export default function AdminPanel() {
         @keyframes ap-spin{to{transform:rotate(360deg)}}
         @media(max-width:1024px){.ap-gallery-layout{grid-template-columns:1fr;}.ap-upload-card{position:static;}}
         @media(max-width:900px){
-          .ap-table-head,.ap-row{grid-template-columns:1fr 1fr 1fr;}
-          .ap-th:nth-child(n+4),.ap-row>*:nth-child(n+4){display:none;}
+          /* The bookings table is 7 columns wide — rather than hiding
+             Staff/Notes/Status/Actions (which made it impossible to
+             confirm/cancel/complete a booking from a phone), it scrolls
+             horizontally instead so every column — including Actions —
+             stays reachable on small screens. */
+          .ap-table{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+          .ap-table-head,.ap-row{grid-template-columns:150px 160px 140px 100px 160px 120px 170px;min-width:1000px;}
           .ap-body{padding:24px 16px 60px;}
           .ap-tabs-inner{padding:0 16px;}
+          .ap-header{padding:0 16px;}
+          .ap-header-inner{height:auto;min-height:64px;flex-wrap:wrap;gap:10px;padding-top:10px;padding-bottom:10px;}
+        }
+        @media(max-width:640px){
+          .ap-stats{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;}
+          .ap-staff-grid,.ap-gallery-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}
+          .ap-form-card{padding:26px 20px;}
+          .ap-form-overlay{padding:16px;}
+          .ap-toast{left:16px;right:16px;top:16px;}
+          .ap-section-head{flex-wrap:wrap;gap:12px;}
+          .ap-section-title{font-size:22px;}
         }
         /* Hero tab — compact live preview reusing the homepage hero's own
            gradient/typography so what the admin sees here matches what

@@ -34,7 +34,7 @@ export default function ContactPage() {
 
   return (
     <div
-      className="min-h-screen py-16 px-6"
+      className="min-h-screen py-10 px-4 sm:py-16 sm:px-6"
       style={{ background: '#FAF7F4', fontFamily: "'DM Sans', sans-serif" }}
     >
       <style>{`
@@ -150,11 +150,11 @@ export default function ContactPage() {
 
           {/* Left — Form */}
           <div
+            className="p-6 sm:p-8"
             style={{
               background: '#fff',
               border: '0.5px solid #DDD5C8',
               borderRadius: 16,
-              padding: '2rem',
             }}
           >
             <p className="cg-section-label">Send a message</p>
@@ -178,7 +178,7 @@ export default function ContactPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label
                     htmlFor="c-email"

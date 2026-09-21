@@ -2,6 +2,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 
@@ -10,8 +11,12 @@ export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
   const isLoginPage = pathname === '/login'; // marks Login as the current page below
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const closeMenu = () => setMenuOpen(false);
 
   const handleLogout = async () => {
+    closeMenu();
     await logout();
     router.push('/login');
   };
@@ -143,13 +148,68 @@ export default function Navbar() {
 
         .nb-sep { width: 1px; height: 20px; background: var(--cream-bd); flex-shrink: 0; }
 
+        /* Hamburger toggle — hidden on desktop */
+        .nb-burger {
+          display: none;
+          width: 40px; height: 40px;
+          padding: 0; border: none; background: transparent;
+          cursor: pointer; flex-shrink: 0;
+          align-items: center; justify-content: center;
+          flex-direction: column; gap: 5px;
+        }
+        .nb-burger span {
+          display: block; width: 22px; height: 2px; background: var(--charcoal);
+          transition: transform .25s ease, opacity .2s ease;
+        }
+        .nb-burger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+        .nb-burger.open span:nth-child(2) { opacity: 0; }
+        .nb-burger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+        .nb-mobile-panel { display: none; }
+
         @media (max-width: 900px) {
           .nb-links { display: none; }
+          .nb-auth { display: none; }
           .nb-inner { padding: 0 20px; }
+          .nb-burger { display: flex; }
+
+          .nb-mobile-panel {
+            display: block;
+            max-height: 0; overflow: hidden;
+            background: var(--cream); border-top: 1px solid transparent;
+            transition: max-height .3s ease, border-color .3s ease;
+          }
+          .nb-mobile-panel.open {
+            max-height: 640px;
+            border-top: 1px solid var(--cream-bd);
+          }
+          .nb-mobile-links {
+            list-style: none; margin: 0; padding: 12px 20px 8px;
+            display: flex; flex-direction: column; gap: 2px;
+          }
+          .nb-mobile-links .nb-link {
+            display: block; padding: 12px 4px; width: 100%; box-sizing: border-box;
+          }
+          .nb-mobile-links .nb-link::after { display: none; }
+
+          .nb-mobile-auth {
+            display: flex; flex-direction: column; gap: 10px;
+            padding: 16px 20px 24px; border-top: 1px solid var(--cream-bd);
+          }
+          .nb-mobile-auth .nb-btn-ghost,
+          .nb-mobile-auth .nb-btn-solid,
+          .nb-mobile-auth .nb-btn-admin {
+            width: 100%; text-align: center; box-sizing: border-box;
+          }
+          .nb-mobile-greeting {
+            font-size: 14px; color: var(--mid); padding: 4px 4px 8px;
+          }
         }
+
         @media (max-width: 480px) {
           .nb-logo { font-size: 22px; }
-          .nb-btn-ghost, .nb-btn-solid { padding: 8px 14px; font-size: 11px; }
+          .nb-inner { height: 64px; padding: 0 16px; }
+          .nb-mobile-links, .nb-mobile-auth { padding-left: 16px; padding-right: 16px; }
         }
       `}</style>
 
@@ -161,7 +221,7 @@ export default function Navbar() {
             Crown <em>&amp; Glow</em>
           </span>
 
-          {/* Nav links */}
+          {/* Nav links — desktop only, see .nb-mobile-links for the mobile equivalent */}
           <ul className="nb-links">
             <li><Link href="/"         className="nb-link">Home</Link></li>
             <li><Link href="/services"  className="nb-link">Services</Link></li>
@@ -174,7 +234,7 @@ export default function Navbar() {
             <li><Link href="/contact"  className="nb-link">Contact</Link></li>
           </ul>
 
-          {/* Auth */}
+          {/* Auth — desktop only, see .nb-mobile-auth for the mobile equivalent */}
           <div className="nb-auth">
             {user ? (
               <>
@@ -219,6 +279,69 @@ export default function Navbar() {
             )}
           </div>
 
+          {/* Hamburger — mobile only */}
+          <button
+            type="button"
+            className={`nb-burger${menuOpen ? ' open' : ''}`}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <span /><span /><span />
+          </button>
+        </div>
+
+        {/* Mobile slide-down panel */}
+        <div className={`nb-mobile-panel${menuOpen ? ' open' : ''}`}>
+          <ul className="nb-mobile-links">
+            <li><Link href="/" className="nb-link" onClick={closeMenu}>Home</Link></li>
+            <li><Link href="/services" className="nb-link" onClick={closeMenu}>Services</Link></li>
+            {!isAdmin && (
+              <li><Link href="/booking" className="nb-link" onClick={closeMenu}>Book Appointment</Link></li>
+            )}
+            <li><Link href="/gallery" className="nb-link" onClick={closeMenu}>Gallery</Link></li>
+            <li><Link href="/about" className="nb-link" onClick={closeMenu}>About Us</Link></li>
+            <li><Link href="/contact" className="nb-link" onClick={closeMenu}>Contact</Link></li>
+          </ul>
+
+          <div className="nb-mobile-auth">
+            {user ? (
+              <>
+                <span className="nb-mobile-greeting">
+                  Hi, <strong>{user.name.split(' ')[0]}</strong>
+                  {isAdmin && <span className="nb-admin-tag">Admin</span>}
+                </span>
+
+                {!isAdmin && (
+                  <Link href="/dashboard" className="nb-btn-ghost" onClick={closeMenu}>
+                    Dashboard
+                  </Link>
+                )}
+
+                <button onClick={handleLogout} className="nb-btn-ghost">
+                  Logout
+                </button>
+
+                {isAdmin && (
+                  <Link href="/admin" className="nb-btn-admin" onClick={closeMenu}>
+                    Admin Panel
+                  </Link>
+                )}
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className={`nb-btn-ghost${isLoginPage ? ' nb-current' : ''}`}
+                  aria-current={isLoginPage ? 'page' : undefined}
+                  onClick={closeMenu}
+                >
+                  Login
+                </Link>
+                <Link href="/register" className="nb-btn-solid" onClick={closeMenu}>Register</Link>
+              </>
+            )}
+          </div>
         </div>
       </nav>
     </>

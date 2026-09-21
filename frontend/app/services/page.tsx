@@ -277,6 +277,10 @@ export default function ServicesPage() {
           .sv-body { padding: 32px 16px 72px; }
           .sv-grid { grid-template-columns: 1fr; gap: 20px; }
         }
+        @media (max-width: 480px) {
+          .sv-tabbar { top: 64px; }
+          .sv-card-body { padding: 20px 20px 18px; }
+        }
       `}</style>
 
       {/* ── Hero ── */}
