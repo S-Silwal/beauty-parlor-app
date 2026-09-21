@@ -303,6 +303,28 @@ model HeroSlide {
   @@map("hero_slides")
 }
 
+// A login-page slideshow slide, admin-managed — see LoginSlideService.
+// One row = one full-height photo on the login screen's left column, with
+// a short label (e.g. a service name), a headline, and a description. No
+// call-to-action here (unlike HeroSlide) — this is a purely decorative,
+// auto-playing backdrop behind the Sign In form, not a clickable banner.
+model LoginSlide {
+  id            String  @id @default(uuid())
+  imageUrl      String // Cloudinary secure_url
+  imagePublicId String? // Cloudinary public_id — lets us delete/replace the asset; null for any pre-Cloudinary seed data
+  label         String // short pill label, e.g. "Eyebrow Waxing"
+  headline      String // e.g. "Where beauty meets ritual."
+  description   String
+  sortOrder     Int     @default(0) // slide sequence on the login page — lower first
+  isActive      Boolean @default(true) // inactive slides are kept (not deleted) but never shown publicly
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("login_slides")
+}
+
 model StaffAvailability {
   id         String   @id @default(uuid())
   staff_id   String
