@@ -205,7 +205,11 @@ export default function GalleryPage() {
 
         @media (max-width: 640px) {
           .gl-lb-arrow { display: none; }
-          .gl-tabbar-inner { flex-wrap: nowrap; }
+          /* Filters wrap onto multiple rows on mobile instead of forcing a
+             horizontal-scroll chip row — every category stays visible at
+             once. (.gl-tabbar-inner already sets flex-wrap: wrap by default;
+             this breakpoint used to override it back to nowrap.) */
+          .gl-tabbar-inner { justify-content: center; }
           .gl-lightbox { padding: 16px; }
           /* Above the image on mobile, above the -44px offset would push
              partway off-screen with only 16px of padding, so it sits

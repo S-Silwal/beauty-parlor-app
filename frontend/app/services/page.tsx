@@ -273,7 +273,9 @@ export default function ServicesPage() {
         @keyframes sv-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
         @media (max-width: 640px) {
-          .sv-tabbar-inner { flex-wrap: nowrap; }
+          /* Same fix as the gallery page: let the pills wrap instead of
+             scrolling sideways, so every category is visible at once. */
+          .sv-tabbar-inner { justify-content: center; }
           .sv-body { padding: 32px 16px 72px; }
           .sv-grid { grid-template-columns: 1fr; gap: 20px; }
         }
