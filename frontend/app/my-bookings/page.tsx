@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/lib/api";
 
 interface Booking {
@@ -25,91 +26,29 @@ const STATUS_STYLES: Record<string, string> = {
   RESCHEDULED: "bg-purple-100 text-purple-700",
 };
 
-// A five-star picker used both to collect a new rating and to render an
-// already-submitted one (readOnly just disables the click handlers).
-function StarPicker({
-  value, onChange, readOnly = false,
-}: { value: number; onChange?: (n: number) => void; readOnly?: boolean }) {
-  const [hover, setHover] = useState(0);
-  const shown = hover || value;
+// Read-only star display for an already-submitted rating. Writing a new
+// rating happens on its own dedicated page (/reviews/write?bookingId=<id>)
+// rather than inline here — see that page for the full form + auth flow.
+function Stars({ value }: { value: number }) {
   return (
-    <div className="flex gap-1" onMouseLeave={() => setHover(0)}>
+    <div className="flex gap-1" aria-label={`${value} out of 5 stars`}>
       {[1, 2, 3, 4, 5].map(n => (
-        <button
-          key={n}
-          type="button"
-          disabled={readOnly}
-          aria-label={`${n} star${n > 1 ? "s" : ""}`}
-          onMouseEnter={() => !readOnly && setHover(n)}
-          onClick={() => !readOnly && onChange?.(n)}
-          className={readOnly ? "cursor-default" : "cursor-pointer"}
-          style={{ fontSize: 22, lineHeight: 1, color: n <= shown ? "#D4A017" : "#D9D2C7", background: "none", border: "none", padding: 0 }}
-        >
-          ★
-        </button>
+        <span key={n} style={{ fontSize: 22, lineHeight: 1, color: n <= value ? "#D4A017" : "#D9D2C7" }}>★</span>
       ))}
     </div>
   );
 }
 
-function MyBookingsContent() {
+export default function MyBookings() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [reviews, setReviews]   = useState<Record<string, MyReview>>({});
   const [loading, setLoading]   = useState(true);
   const router = useRouter();
-  const searchParams = useSearchParams();
-
-  // Which booking's "rate this service" form is currently open (from a
-  // plain click), and its draft.
-  const [openId, setOpenId]         = useState<string | null>(null);
-  const [draftRating, setDraftRating] = useState(0);
-  const [draftComment, setDraftComment] = useState("");
-  const [submittingId, setSubmittingId] = useState<string | null>(null);
-  const [formError, setFormError]   = useState("");
-
-  // A `?review=<bookingId>` deep link — the button in the "booking
-  // completed" email points here — auto-opens that booking's form. All of
-  // this is DERIVED during render (never set from an effect): React's own
-  // guidance is that data computed from props/state/URL belongs in the
-  // render body, not in a `useEffect` that turns around and calls
-  // setState. `dismissedReviewId` is the one piece of real state, needed
-  // so the customer can close the auto-opened form instead of having it
-  // reopen on every render.
-  const [dismissedReviewId, setDismissedReviewId] = useState<string | null>(null);
-  const requestedReviewId = searchParams.get("review");
-  const reviewTarget = requestedReviewId
-    ? bookings.find(b => b.id === requestedReviewId)
-    : undefined;
-
-  // Set only when a `?review=<bookingId>` link can't be honored as-is —
-  // booking not found, not yet completed, or already reviewed — so the
-  // customer gets an explanation instead of the page silently doing
-  // nothing. The real authorization check still happens server-side on
-  // submit (ReviewService.createReview); this is just UX.
-  const reviewNotice = (!loading && requestedReviewId)
-    ? (!reviewTarget
-        ? "We couldn't find that booking on your account."
-        : reviewTarget.status !== "COMPLETED"
-          ? "That booking hasn't been completed yet, so it can't be reviewed until after your appointment."
-          : reviews[requestedReviewId]
-            ? "You've already submitted a review for that booking."
-            : "")
-    : "";
-
-  const autoOpenId = (reviewTarget
-    && reviewTarget.status === "COMPLETED"
-    && !reviews[reviewTarget.id]
-    && dismissedReviewId !== reviewTarget.id)
-    ? reviewTarget.id
-    : null;
-
-  // A plain click always wins over the deep link once one has happened.
-  const activeOpenId = openId ?? autoOpenId;
 
   const fetchAll = useCallback(async () => {
     const token = api.getToken();
     if (!token) {
-      router.push(`/login?next=${encodeURIComponent("/my-bookings" + window.location.search)}`);
+      router.push(`/login?next=${encodeURIComponent("/my-bookings")}`);
       return;
     }
 
@@ -125,7 +64,7 @@ function MyBookingsContent() {
         // Token present but rejected (expired/invalid) — don't show a
         // misleading "no appointments" empty state, send them to log in.
         api.removeToken();
-        router.push(`/login?next=${encodeURIComponent("/my-bookings" + window.location.search)}`);
+        router.push(`/login?next=${encodeURIComponent("/my-bookings")}`);
         return;
       }
 
@@ -147,75 +86,12 @@ function MyBookingsContent() {
     })();
   }, [fetchAll]);
 
-  // The only actual side effect the deep link needs: scroll the
-  // auto-opened form into view once it's rendered. This never calls
-  // setState, so it's a plain effect, not a derived-state one.
-  useEffect(() => {
-    if (!autoOpenId) return;
-    const timer = window.setTimeout(() => {
-      document.getElementById(`booking-${autoOpenId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 50);
-    return () => window.clearTimeout(timer);
-  }, [autoOpenId]);
-
-  const openRatingForm = (bookingId: string) => {
-    setOpenId(bookingId);
-    setDraftRating(0);
-    setDraftComment("");
-    setFormError("");
-  };
-
-  const closeRatingForm = () => {
-    // If this form was auto-opened from the email link, remember that the
-    // customer dismissed it so it doesn't just reopen on the next render.
-    if (autoOpenId) setDismissedReviewId(autoOpenId);
-    setOpenId(null);
-    setFormError("");
-  };
-
-  const submitRating = async (bookingId: string) => {
-    if (draftRating < 1) {
-      setFormError("Please select a star rating.");
-      return;
-    }
-    const token = api.getToken();
-    if (!token) {
-      router.push(`/login?next=${encodeURIComponent("/my-bookings?review=" + bookingId)}`);
-      return;
-    }
-
-    setSubmittingId(bookingId);
-    setFormError("");
-    try {
-      const res = await api.submitReview(
-        { appointment_id: bookingId, rating: draftRating, comment: draftComment.trim() || undefined },
-        token
-      );
-      if (res.success) {
-        setReviews(prev => ({ ...prev, [bookingId]: { appointment_id: bookingId, rating: draftRating, comment: draftComment.trim() || undefined } }));
-        setOpenId(null);
-      } else {
-        setFormError(res.message || "Failed to submit rating");
-      }
-    } catch {
-      setFormError("Failed to submit rating. Please try again.");
-    } finally {
-      setSubmittingId(null);
-    }
-  };
-
   if (loading) return <div className="text-center py-20">Loading your appointments...</div>;
 
   return (
     <div className="min-h-screen bg-[#f8f1e9] py-12">
       <div className="max-w-5xl mx-auto px-6">
         <h1 className="text-5xl font-serif text-center mb-12">My Appointments</h1>
-
-        {reviewNotice && (
-          <div className="mb-8 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-2xl px-6 py-4 text-center">
-            {reviewNotice}
-          </div>
-        )}
 
         {bookings.length === 0 ? (
           <div className="text-center py-24 bg-white rounded-3xl shadow">
@@ -230,7 +106,7 @@ function MyBookingsContent() {
               const myReview = reviews[booking.id];
               const canRate  = booking.status === "COMPLETED";
               return (
-                <div key={booking.id} id={`booking-${booking.id}`} className="bg-white p-8 rounded-3xl shadow scroll-mt-24">
+                <div key={booking.id} className="bg-white p-8 rounded-3xl shadow">
                   <div className="flex justify-between items-center">
                     <div>
                       <h3 className="text-2xl font-semibold">{booking.service?.name || "Service"}</h3>
@@ -255,48 +131,20 @@ function MyBookingsContent() {
                         <div>
                           <p className="text-sm text-gray-500 mb-2">Your rating</p>
                           <div className="flex items-center gap-3">
-                            <StarPicker value={myReview.rating} readOnly />
+                            <Stars value={myReview.rating} />
                             <span className="text-sm text-gray-500">{myReview.rating}/5</span>
                           </div>
                           {myReview.comment && (
                             <p className="text-sm text-gray-500 italic mt-2">&quot;{myReview.comment}&quot;</p>
                           )}
                         </div>
-                      ) : activeOpenId === booking.id ? (
-                        <div>
-                          <p className="text-sm font-medium mb-2">Rate this service</p>
-                          <StarPicker value={draftRating} onChange={setDraftRating} />
-                          <textarea
-                            value={draftComment}
-                            onChange={e => setDraftComment(e.target.value)}
-                            placeholder="Add a comment (optional)"
-                            maxLength={500}
-                            className="w-full mt-3 p-3 border border-gray-300 rounded-xl text-sm resize-y h-20 focus:outline-none focus:ring-2 focus:ring-pink-400"
-                          />
-                          {formError && <p className="text-sm text-red-600 mt-2">{formError}</p>}
-                          <div className="flex gap-3 mt-3">
-                            <button
-                              onClick={() => submitRating(booking.id)}
-                              disabled={submittingId === booking.id}
-                              className="bg-[#3f2a1e] text-white px-6 py-2 rounded-xl text-sm font-medium hover:bg-black transition disabled:opacity-50"
-                            >
-                              {submittingId === booking.id ? "Submitting…" : "Submit Rating"}
-                            </button>
-                            <button
-                              onClick={closeRatingForm}
-                              className="px-6 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 transition"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
                       ) : (
-                        <button
-                          onClick={() => openRatingForm(booking.id)}
+                        <Link
+                          href={`/reviews/write?bookingId=${booking.id}`}
                           className="text-sm font-medium text-pink-600 hover:text-pink-700 transition"
                         >
                           ★ Rate this service
-                        </button>
+                        </Link>
                       )}
                     </div>
                   )}
@@ -307,13 +155,5 @@ function MyBookingsContent() {
         )}
       </div>
     </div>
-  );
-}
-
-export default function MyBookings() {
-  return (
-    <Suspense fallback={<div className="text-center py-20">Loading your appointments...</div>}>
-      <MyBookingsContent />
-    </Suspense>
   );
 }

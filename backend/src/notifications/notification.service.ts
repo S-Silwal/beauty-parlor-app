@@ -159,9 +159,11 @@ export async function notifyBookingConfirmed(appointmentId: string) {
  * Send "thank you + review request" notification — call this only when
  * staff mark the appointment COMPLETED (AppointmentService.completeAppointmentWithPayment).
  * Cancelled or still-pending/confirmed bookings never get this email. The
- * review link opens the existing My Bookings review section pre-scoped to
- * this booking — ReviewService.createReview re-checks ownership and status
- * server-side regardless of what the link says.
+ * review link opens the dedicated /reviews/write?bookingId=<id> page
+ * (frontend/app/reviews/write/page.tsx) — a focused write-a-review form,
+ * separate from the read-only public /reviews list — which redirects to
+ * login-then-back if the customer isn't signed in. ReviewService.createReview
+ * re-checks ownership and status server-side regardless of what the link says.
  */
 export async function notifyBookingCompleted(appointmentId: string) {
   const appointment = await prisma.appointment.findUnique({
@@ -175,7 +177,7 @@ export async function notifyBookingCompleted(appointmentId: string) {
 
   if (!appointment) throw new Error(`Appointment ${appointmentId} not found`);
 
-  const reviewUrl = `${FRONTEND_URL}/my-bookings?review=${appointment.id}`;
+  const reviewUrl = `${FRONTEND_URL}/reviews/write?bookingId=${appointment.id}`;
 
   const emailData = {
     customerName: appointment.user.name,
