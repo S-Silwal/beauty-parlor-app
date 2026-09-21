@@ -9,10 +9,13 @@ import {
   BookingEmailData,
   CancelledEmailData,
   RescheduledEmailData,
+  CompletedEmailData,
 } from '../templates/types';
 
 // ✅ FIX 2: Import each template from its own separate file
+import { bookingPlacedTemplate }     from '../templates/booking-placed';
 import { bookingConfirmedTemplate } from '../templates/booking-confirmed';
+import { bookingCompletedTemplate } from '../templates/booking-completed';
 import { reminder24hTemplate }      from '../templates/reminder-24h';
 import { bookingCancelledTemplate } from '../templates/cancelled';
 import { bookingRescheduledTemplate } from '../templates/rescheduled';
@@ -38,7 +41,9 @@ function getResend(): Resend {
 const FROM = process.env.RESEND_FROM_EMAIL || 'Crown & Glow <hello@crownandglow.com>';
 
 export type EmailEvent =
+  | 'BOOKING_PLACED'
   | 'BOOKING_CONFIRMED'
+  | 'BOOKING_COMPLETED'
   | 'REMINDER_24H'
   | 'CANCELLED'
   | 'RESCHEDULED'
@@ -49,6 +54,7 @@ type EmailData =
   | BookingEmailData
   | CancelledEmailData
   | RescheduledEmailData
+  | CompletedEmailData
   | ChangeRequestDeclinedEmailData;
 
 interface SendEmailOptions {
@@ -84,8 +90,14 @@ export async function sendEmail({
   let template: { subject: string; html: string };
 
   switch (event) {
+    case 'BOOKING_PLACED':
+      template = bookingPlacedTemplate(data as BookingEmailData);
+      break;
     case 'BOOKING_CONFIRMED':
       template = bookingConfirmedTemplate(data as BookingEmailData);
+      break;
+    case 'BOOKING_COMPLETED':
+      template = bookingCompletedTemplate(data as CompletedEmailData);
       break;
     case 'REMINDER_24H':
       template = reminder24hTemplate(data as BookingEmailData);

@@ -5,7 +5,9 @@ import { emitBookingCreated, emitBookingUpdated } from "../socket";
 import { AppError } from "../utils/AppError";
 import { PageParams, PaginatedResult } from "../utils/pagination";
 import {
+  notifyBookingPlaced,
   notifyBookingConfirmed,
+  notifyBookingCompleted,
   notifyBookingCancelled,
   notifyBookingRescheduled,
 } from '../notifications/notification.service';
@@ -489,12 +491,13 @@ export class AppointmentService {
     if (isNew) {
       emitBookingCreated(appointment);
 
-      // notifyBookingConfirmed() sends the confirmation email + SMS and
-      // schedules the 24h reminder — do not also call sendEmail() directly
-      // here, or the customer gets two confirmation emails per booking.
-      // Only fire this for a genuinely new row — an idempotent replay must
-      // not re-send the confirmation email/SMS.
-      notifyBookingConfirmed(appointment.id).catch(err =>
+      // notifyBookingPlaced() sends the "we received your request" email + SMS
+      // for a brand-new PENDING booking — this is NOT a confirmation. The
+      // actual "Booking Confirmed" email (with the 24h reminder scheduled)
+      // only fires later, from updateAppointmentStatus(), once an admin
+      // really confirms it. Only fire this for a genuinely new row — an
+      // idempotent replay must not re-send the placed email/SMS.
+      notifyBookingPlaced(appointment.id).catch(err =>
         console.error("Notification error:", err)
       );
     }
@@ -748,6 +751,12 @@ export class AppointmentService {
     });
 
     emitBookingUpdated(updated);
+
+    // Thank-you + review-request email/SMS only fires here, on the genuine
+    // COMPLETED transition — never at booking creation or admin confirmation.
+    notifyBookingCompleted(appointmentId).catch(err =>
+      console.error("Notification error:", err)
+    );
 
     recordAuditLog({
       actor,

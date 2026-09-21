@@ -64,11 +64,16 @@ export default function MyBookings() {
   const [draftComment, setDraftComment] = useState("");
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [formError, setFormError]   = useState("");
+  // Set only when a `?review=<bookingId>` link (from the "Write a Review"
+  // email button) can't be honored as-is — booking not found, not yet
+  // completed, or already reviewed — so the customer gets an explanation
+  // instead of the page silently doing nothing.
+  const [reviewNotice, setReviewNotice] = useState("");
 
   const fetchAll = useCallback(async () => {
     const token = api.getToken();
     if (!token) {
-      router.push("/login");
+      router.push(`/login?next=${encodeURIComponent("/my-bookings" + window.location.search)}`);
       return;
     }
 
@@ -84,7 +89,7 @@ export default function MyBookings() {
         // Token present but rejected (expired/invalid) — don't show a
         // misleading "no appointments" empty state, send them to log in.
         api.removeToken();
-        router.push("/login");
+        router.push(`/login?next=${encodeURIComponent("/my-bookings" + window.location.search)}`);
         return;
       }
 
@@ -106,6 +111,34 @@ export default function MyBookings() {
     })();
   }, [fetchAll]);
 
+  // Honor a `?review=<bookingId>` deep link — the button in the "booking
+  // completed" email points here. Only ever auto-opens the form for a
+  // booking that's actually in THIS customer's own list (getMyBookings is
+  // already scoped server-side to the logged-in user) and eligible; the
+  // real authorization check still happens server-side on submit
+  // (ReviewService.createReview), this is just UX.
+  useEffect(() => {
+    if (loading) return;
+    const bookingId = new URLSearchParams(window.location.search).get("review");
+    if (!bookingId) return;
+
+    const target = bookings.find(b => b.id === bookingId);
+    if (!target) {
+      setReviewNotice("We couldn't find that booking on your account.");
+    } else if (target.status !== "COMPLETED") {
+      setReviewNotice("That booking hasn't been completed yet, so it can't be reviewed until after your appointment.");
+    } else if (reviews[bookingId]) {
+      setReviewNotice("You've already submitted a review for that booking.");
+    } else {
+      openRatingForm(bookingId);
+      // Let the rating form actually render before scrolling to it.
+      setTimeout(() => {
+        document.getElementById(`booking-${bookingId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, bookings, reviews]);
+
   const openRatingForm = (bookingId: string) => {
     setOpenId(bookingId);
     setDraftRating(0);
@@ -124,7 +157,10 @@ export default function MyBookings() {
       return;
     }
     const token = api.getToken();
-    if (!token) { router.push("/login"); return; }
+    if (!token) {
+      router.push(`/login?next=${encodeURIComponent("/my-bookings?review=" + bookingId)}`);
+      return;
+    }
 
     setSubmittingId(bookingId);
     setFormError("");
@@ -153,6 +189,12 @@ export default function MyBookings() {
       <div className="max-w-5xl mx-auto px-6">
         <h1 className="text-5xl font-serif text-center mb-12">My Appointments</h1>
 
+        {reviewNotice && (
+          <div className="mb-8 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-2xl px-6 py-4 text-center">
+            {reviewNotice}
+          </div>
+        )}
+
         {bookings.length === 0 ? (
           <div className="text-center py-24 bg-white rounded-3xl shadow">
             <p className="text-2xl text-[#6b5c4d]">You have no appointments yet.</p>
@@ -166,7 +208,7 @@ export default function MyBookings() {
               const myReview = reviews[booking.id];
               const canRate  = booking.status === "COMPLETED";
               return (
-                <div key={booking.id} className="bg-white p-8 rounded-3xl shadow">
+                <div key={booking.id} id={`booking-${booking.id}`} className="bg-white p-8 rounded-3xl shadow scroll-mt-24">
                   <div className="flex justify-between items-center">
                     <div>
                       <h3 className="text-2xl font-semibold">{booking.service?.name || "Service"}</h3>
