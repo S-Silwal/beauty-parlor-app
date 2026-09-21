@@ -26,7 +26,9 @@ if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER) {
 }
 
 export type SmsEvent =
+  | 'BOOKING_PLACED'
   | 'BOOKING_CONFIRMED'
+  | 'BOOKING_COMPLETED'
   | 'REMINDER_24H'
   | 'CANCELLED'
   | 'RESCHEDULED'
@@ -52,8 +54,14 @@ function buildSmsMessage(event: SmsEvent, data: SmsData): string {
   const name = data.customerName.split(' ')[0];
 
   switch (event) {
+    case 'BOOKING_PLACED':
+      return `Hi ${name}! We received your ${data.serviceName} request for ${data.appointmentDate} at ${data.appointmentTime}. We'll text you once it's confirmed. Crown & Glow — (317) 555-0187.`;
+
     case 'BOOKING_CONFIRMED':
       return `Hi ${name}! ✅ Your ${data.serviceName} at Crown & Glow is confirmed for ${data.appointmentDate} at ${data.appointmentTime}. See you soon! Questions? Call (317) 555-0187.`;
+
+    case 'BOOKING_COMPLETED':
+      return `Hi ${name}! 💛 Thanks for choosing Crown & Glow for your ${data.serviceName}. We'd love your feedback — check your email for a quick review link.`;
 
     case 'REMINDER_24H':
       return `Hi ${name}! ⏰ Reminder: Your ${data.serviceName} is tomorrow at ${data.appointmentTime}. Crown & Glow, 456 Glow Ave. Need to cancel? Call (317) 555-0187 ASAP.`;

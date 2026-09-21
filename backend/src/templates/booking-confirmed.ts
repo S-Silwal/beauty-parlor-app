@@ -43,9 +43,10 @@ const baseTemplate = (content: string, previewText: string) => `
     .h1 em { font-style: italic; color: #B89A6A; }
     .subtitle { font-size: 14px; color: #9E968E; margin-bottom: 32px; }
     .detail-card { background: #F7F3EE; border-radius: 6px; padding: 24px; margin: 24px 0; border-left: 3px solid #B89A6A; }
-    .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #EDE6DC; font-size: 14px; }
-    .detail-row:last-child { border-bottom: none; }
-    .detail-label { color: #9E968E; font-weight: 500; }
+    .detail-table { width: 100%; border-collapse: collapse; }
+    .detail-row td { padding: 8px 0; border-bottom: 1px solid #EDE6DC; font-size: 14px; vertical-align: top; }
+    .detail-row:last-child td { border-bottom: none; }
+    .detail-label { color: #9E968E; font-weight: 500; white-space: nowrap; padding-right: 18px; }
     .detail-value { color: #2C2825; font-weight: 500; text-align: right; }
     .btn { display: inline-block; background: #2C2825; color: #F7F3EE !important; text-decoration: none; padding: 14px 32px; border-radius: 4px; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; margin: 24px 0; }
     .btn:hover { background: #B89A6A; }
@@ -60,8 +61,8 @@ const baseTemplate = (content: string, previewText: string) => `
     .badge-gold { background: #FEF3C7; color: #92400E; }
     @media (max-width: 600px) {
       .body { padding: 24px 20px; }
-      .detail-row { flex-direction: column; gap: 4px; }
-      .detail-value { text-align: left; }
+      .detail-label { display: block; padding-right: 0; white-space: normal; }
+      .detail-value { display: block; text-align: left; padding-top: 2px; }
     }
   </style>
 </head>
@@ -93,7 +94,9 @@ const baseTemplate = (content: string, previewText: string) => `
 `;
 
 
-// ── 1. Booking Confirmed ─────────────────────────────────────────────────────
+// ── Booking Confirmed — sent ONLY when an admin/staff member actually
+//    confirms a PENDING booking (see AppointmentService.updateAppointmentStatus).
+//    Never call this at booking-create time — that's notifyBookingPlaced.
 export function bookingConfirmedTemplate(data: BookingEmailData): { subject: string; html: string } {
   const subject = `✅ Booking Confirmed — ${data.serviceName} on ${data.appointmentDate}`;
 
@@ -101,39 +104,41 @@ export function bookingConfirmedTemplate(data: BookingEmailData): { subject: str
     <div class="body">
       <span class="badge badge-green" style="margin-bottom:20px;">Booking Confirmed</span>
       <h1 class="h1">You're all booked, <em>${data.customerName.split(' ')[0]}!</em></h1>
-      <p class="subtitle">We look forward to seeing you. Here are your booking details.</p>
+      <p class="subtitle">Our team has confirmed your appointment. Here are your booking details.</p>
 
       <div class="detail-card">
-        <div class="detail-row">
-          <span class="detail-label">Service</span>
-          <span class="detail-value">${data.serviceName}</span>
-        </div>
+        <table class="detail-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr class="detail-row">
+          <td class="detail-label">Service:</td>
+          <td class="detail-value">${data.serviceName}</td>
+        </tr>
         ${data.staffName ? `
-        <div class="detail-row">
-          <span class="detail-label">Specialist</span>
-          <span class="detail-value">${data.staffName}</span>
-        </div>` : ''}
-        <div class="detail-row">
-          <span class="detail-label">Date</span>
-          <span class="detail-value">${data.appointmentDate}</span>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">Time</span>
-          <span class="detail-value">${data.appointmentTime}</span>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">Price</span>
-          <span class="detail-value">${data.price}</span>
-        </div>
+        <tr class="detail-row">
+          <td class="detail-label">Specialist:</td>
+          <td class="detail-value">${data.staffName}</td>
+        </tr>` : ''}
+        <tr class="detail-row">
+          <td class="detail-label">Date:</td>
+          <td class="detail-value">${data.appointmentDate}</td>
+        </tr>
+        <tr class="detail-row">
+          <td class="detail-label">Time:</td>
+          <td class="detail-value">${data.appointmentTime}</td>
+        </tr>
+        <tr class="detail-row">
+          <td class="detail-label">Price:</td>
+          <td class="detail-value">${data.price}</td>
+        </tr>
         ${data.notes ? `
-        <div class="detail-row">
-          <span class="detail-label">Notes</span>
-          <span class="detail-value">${data.notes}</span>
-        </div>` : ''}
-        <div class="detail-row">
-          <span class="detail-label">Booking ID</span>
-          <span class="detail-value" style="font-size:12px;color:#9E968E;">#${data.bookingId}</span>
-        </div>
+        <tr class="detail-row">
+          <td class="detail-label">Notes:</td>
+          <td class="detail-value">${data.notes}</td>
+        </tr>` : ''}
+        <tr class="detail-row">
+          <td class="detail-label">Booking ID:</td>
+          <td class="detail-value" style="font-size:12px;color:#9E968E;">#${data.bookingId}</td>
+        </tr>
+        </table>
       </div>
 
       <p class="p">

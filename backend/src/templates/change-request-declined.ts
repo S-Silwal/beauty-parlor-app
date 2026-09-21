@@ -31,9 +31,10 @@ const baseTemplate = (content: string, previewText: string) => `
     .h1 em { font-style: italic; color: #B89A6A; }
     .subtitle { font-size: 14px; color: #9E968E; margin-bottom: 32px; }
     .detail-card { background: #F7F3EE; border-radius: 6px; padding: 24px; margin: 24px 0; border-left: 3px solid #B89A6A; }
-    .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #EDE6DC; font-size: 14px; }
-    .detail-row:last-child { border-bottom: none; }
-    .detail-label { color: #9E968E; font-weight: 500; }
+    .detail-table { width: 100%; border-collapse: collapse; }
+    .detail-row td { padding: 8px 0; border-bottom: 1px solid #EDE6DC; font-size: 14px; vertical-align: top; }
+    .detail-row:last-child td { border-bottom: none; }
+    .detail-label { color: #9E968E; font-weight: 500; white-space: nowrap; padding-right: 18px; }
     .detail-value { color: #2C2825; font-weight: 500; text-align: right; }
     .btn { display: inline-block; background: #2C2825; color: #F7F3EE !important; text-decoration: none; padding: 14px 32px; border-radius: 4px; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; margin: 24px 0; }
     .btn:hover { background: #B89A6A; }
@@ -48,8 +49,8 @@ const baseTemplate = (content: string, previewText: string) => `
     .badge-gold { background: #FEF3C7; color: #92400E; }
     @media (max-width: 600px) {
       .body { padding: 24px 20px; }
-      .detail-row { flex-direction: column; gap: 4px; }
-      .detail-value { text-align: left; }
+      .detail-label { display: block; padding-right: 0; white-space: normal; }
+      .detail-value { display: block; text-align: left; padding-top: 2px; }
     }
   </style>
 </head>
@@ -108,19 +109,21 @@ export function changeRequestDeclinedTemplate(
       </p>
 
       <div class="detail-card">
-        <div class="detail-row">
-          <span class="detail-label">Service</span>
-          <span class="detail-value">${data.serviceName}</span>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">Still scheduled for</span>
-          <span class="detail-value">${data.appointmentDate} at ${data.appointmentTime}</span>
-        </div>
+        <table class="detail-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr class="detail-row">
+          <td class="detail-label">Service:</td>
+          <td class="detail-value">${data.serviceName}</td>
+        </tr>
+        <tr class="detail-row">
+          <td class="detail-label">Still scheduled for:</td>
+          <td class="detail-value">${data.appointmentDate} at ${data.appointmentTime}</td>
+        </tr>
         ${data.reason ? `
-        <div class="detail-row">
-          <span class="detail-label">Reason</span>
-          <span class="detail-value">${data.reason}</span>
-        </div>` : ''}
+        <tr class="detail-row">
+          <td class="detail-label">Reason:</td>
+          <td class="detail-value">${data.reason}</td>
+        </tr>` : ''}
+        </table>
       </div>
 
       <p class="p">

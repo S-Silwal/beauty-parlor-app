@@ -64,7 +64,12 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      router.push('/');
+      // Return the person to wherever they came from (e.g. a "write a
+      // review" link from an email, or any other page that redirected here
+      // to log in first) — only ever an internal path, never an absolute
+      // URL, so a crafted `next` value can't be used as an open redirect.
+      const next = new URLSearchParams(window.location.search).get('next');
+      router.push(next && next.startsWith('/') ? next : '/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid email or password');
     } finally {

@@ -4,6 +4,8 @@ import { sendEmail } from './email.service';
 import { sendSms } from './sms.service';
 import { scheduleReminder } from './scheduler.service';
 
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+
 /**
  * Format date for display: "Friday, May 15, 2026"
  */
@@ -21,7 +23,77 @@ function formatTime(date: Date): string {
 }
 
 /**
- * Send booking confirmation — call this right after booking is created
+ * Send "booking placed" notification — call this right after a customer
+ * SUBMITS a new booking (status is still PENDING at this point). This is
+ * NOT a confirmation: a real member of staff has not looked at the request
+ * yet. notifyBookingConfirmed (below) is the one that fires once an admin
+ * actually confirms it — do not call that one from the create path.
+ */
+export async function notifyBookingPlaced(appointmentId: string) {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: {
+      user: true,
+      service: true,
+      staff: true,
+    },
+  });
+
+  if (!appointment) throw new Error(`Appointment ${appointmentId} not found`);
+
+  const emailData = {
+    customerName: appointment.user.name,
+    customerEmail: appointment.user.email,
+    serviceName: appointment.service.name,
+    staffName: appointment.staff?.name,
+    appointmentDate: formatDate(appointment.appointment_date),
+    appointmentTime: formatTime(appointment.appointment_date),
+    price: `$${Number(appointment.total_price).toLocaleString('en-US')}`,
+    notes: appointment.notes ?? undefined,
+    bookingId: appointment.id,
+  };
+
+  const smsData = {
+    customerName: appointment.user.name,
+    serviceName: appointment.service.name,
+    appointmentDate: formatDate(appointment.appointment_date),
+    appointmentTime: formatTime(appointment.appointment_date),
+    phone: appointment.user.phone ?? '',
+  };
+
+  // Send email + SMS in parallel (don't await — fire and forget). The 24h
+  // reminder is deliberately NOT scheduled here — it's scheduled once the
+  // booking is actually confirmed (see notifyBookingConfirmed), since a
+  // reminder for a request nobody has confirmed yet would be misleading.
+  Promise.allSettled([
+    sendEmail({
+      event: 'BOOKING_PLACED',
+      data: emailData,
+      userId: appointment.user_id,
+      appointmentId,
+    }),
+    sendSms({
+      event: 'BOOKING_PLACED',
+      data: smsData,
+      userId: appointment.user_id,
+      appointmentId,
+    }),
+  ]).then(results => {
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        console.error(`Notification ${i} failed:`, r.reason);
+      }
+    });
+  });
+
+  console.log(`📬 "Booking placed" notifications triggered for ${appointmentId}`);
+}
+
+/**
+ * Send booking confirmation — call this only when an admin/staff member
+ * actually confirms a PENDING booking (AppointmentService.updateAppointmentStatus,
+ * status === "CONFIRMED"). Never call this from the booking-create path —
+ * that's notifyBookingPlaced above.
  */
 export async function notifyBookingConfirmed(appointmentId: string) {
   const appointment = await prisma.appointment.findUnique({
@@ -81,6 +153,72 @@ export async function notifyBookingConfirmed(appointmentId: string) {
   });
 
   console.log(`📬 Notifications triggered for booking ${appointmentId}`);
+}
+
+/**
+ * Send "thank you + review request" notification — call this only when
+ * staff mark the appointment COMPLETED (AppointmentService.completeAppointmentWithPayment).
+ * Cancelled or still-pending/confirmed bookings never get this email. The
+ * review link opens the existing My Bookings review section pre-scoped to
+ * this booking — ReviewService.createReview re-checks ownership and status
+ * server-side regardless of what the link says.
+ */
+export async function notifyBookingCompleted(appointmentId: string) {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: {
+      user: true,
+      service: true,
+      staff: true,
+    },
+  });
+
+  if (!appointment) throw new Error(`Appointment ${appointmentId} not found`);
+
+  const reviewUrl = `${FRONTEND_URL}/my-bookings?review=${appointment.id}`;
+
+  const emailData = {
+    customerName: appointment.user.name,
+    customerEmail: appointment.user.email,
+    serviceName: appointment.service.name,
+    staffName: appointment.staff?.name,
+    appointmentDate: formatDate(appointment.appointment_date),
+    appointmentTime: formatTime(appointment.appointment_date),
+    price: `$${Number(appointment.total_price).toLocaleString('en-US')}`,
+    bookingId: appointment.id,
+    reviewUrl,
+  };
+
+  const smsData = {
+    customerName: appointment.user.name,
+    serviceName: appointment.service.name,
+    appointmentDate: formatDate(appointment.appointment_date),
+    appointmentTime: formatTime(appointment.appointment_date),
+    phone: appointment.user.phone ?? '',
+  };
+
+  Promise.allSettled([
+    sendEmail({
+      event: 'BOOKING_COMPLETED',
+      data: emailData,
+      userId: appointment.user_id,
+      appointmentId,
+    }),
+    sendSms({
+      event: 'BOOKING_COMPLETED',
+      data: smsData,
+      userId: appointment.user_id,
+      appointmentId,
+    }),
+  ]).then(results => {
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        console.error(`Notification ${i} failed:`, r.reason);
+      }
+    });
+  });
+
+  console.log(`📬 "Thank you" + review-request notifications triggered for ${appointmentId}`);
 }
 
 /**

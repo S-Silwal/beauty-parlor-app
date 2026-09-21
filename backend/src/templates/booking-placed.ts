@@ -8,7 +8,7 @@ const BRAND = {
   website: 'https://crownandglow.com',
 };
 
-// ── Base wrapper ─────────────────────────────────────────────────────────────
+// ── Base wrapper (same shell as the other booking emails) ───────────────────
 const baseTemplate = (content: string, previewText: string) => `
 <!DOCTYPE html>
 <html lang="en">
@@ -81,7 +81,7 @@ const baseTemplate = (content: string, previewText: string) => `
 </html>
 `;
 
-// ── Template data types ───────────────────────────────────────────────────────
+// ── Template data type ───────────────────────────────────────────────────────
 export interface BookingEmailData {
   customerName: string;
   customerEmail: string;
@@ -93,15 +93,19 @@ export interface BookingEmailData {
   notes?: string;
   bookingId: string;
 }
-// ── 2. Reminder 24 Hours ─────────────────────────────────────────────────────
-export function reminder24hTemplate(data: BookingEmailData): { subject: string; html: string } {
-  const subject = `⏰ Reminder: ${data.serviceName} Tomorrow at ${data.appointmentTime}`;
+
+// ── Booking Placed — sent the moment a customer SUBMITS a booking, before
+//    any staff member has looked at it. Never call the "Confirmed" template
+//    here — a booking isn't confirmed until AppointmentService.updateAppointmentStatus
+//    actually flips it to CONFIRMED (see notifyBookingConfirmed for that email).
+export function bookingPlacedTemplate(data: BookingEmailData): { subject: string; html: string } {
+  const subject = `🕐 Your booking request has been received — ${data.serviceName}`;
 
   const html = baseTemplate(`
     <div class="body">
-      <span class="badge badge-gold" style="margin-bottom:20px;">Appointment Tomorrow</span>
-      <h1 class="h1">See you <em>tomorrow!</em></h1>
-      <p class="subtitle">Just a friendly reminder about your upcoming appointment.</p>
+      <span class="badge badge-gold" style="margin-bottom:20px;">Booking Placed</span>
+      <h1 class="h1">Thanks, <em>${data.customerName.split(' ')[0]}!</em></h1>
+      <p class="subtitle">Your booking has been placed and is awaiting salon confirmation. We'll email you as soon as our team confirms it.</p>
 
       <div class="detail-card">
         <table class="detail-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
@@ -115,32 +119,43 @@ export function reminder24hTemplate(data: BookingEmailData): { subject: string; 
           <td class="detail-value">${data.staffName}</td>
         </tr>` : ''}
         <tr class="detail-row">
-          <td class="detail-label">Date:</td>
+          <td class="detail-label">Requested Date:</td>
           <td class="detail-value">${data.appointmentDate}</td>
         </tr>
         <tr class="detail-row">
-          <td class="detail-label">Time:</td>
+          <td class="detail-label">Requested Time:</td>
           <td class="detail-value">${data.appointmentTime}</td>
+        </tr>
+        <tr class="detail-row">
+          <td class="detail-label">Price:</td>
+          <td class="detail-value">${data.price}</td>
+        </tr>
+        ${data.notes ? `
+        <tr class="detail-row">
+          <td class="detail-label">Notes:</td>
+          <td class="detail-value">${data.notes}</td>
+        </tr>` : ''}
+        <tr class="detail-row">
+          <td class="detail-label">Booking ID:</td>
+          <td class="detail-value" style="font-size:12px;color:#9E968E;">#${data.bookingId}</td>
         </tr>
         </table>
       </div>
 
       <p class="p">
-        🌟 <strong>Preparation tips for ${data.serviceName}:</strong><br/>
-        Come with clean skin, avoid heavy moisturizers, and wear comfortable clothing.
-        Arrive 5 minutes early so we can get started on time.
+        This is not a confirmation yet — a member of our team will review your request and confirm
+        your appointment shortly. Nothing further is required from you right now.
       </p>
 
       <center>
-        <a href="${BRAND.website}/dashboard" class="btn btn-gold">View Booking Details</a>
+        <a href="${BRAND.website}/dashboard" class="btn">View My Bookings</a>
       </center>
 
       <p class="p" style="font-size:13px;color:#9E968E;">
-        Need to cancel? Please call us at ${BRAND.phone} as soon as possible.
-        Last-minute cancellations may incur a fee.
+        Questions in the meantime? Call us at ${BRAND.phone} or reply to this email.
       </p>
     </div>
-  `, `Reminder: Your ${data.serviceName} is tomorrow at ${data.appointmentTime}`);
+  `, `We received your ${data.serviceName} request for ${data.appointmentDate} at ${data.appointmentTime}`);
 
   return { subject, html };
 }

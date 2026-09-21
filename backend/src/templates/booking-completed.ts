@@ -8,7 +8,7 @@ const BRAND = {
   website: 'https://crownandglow.com',
 };
 
-// ── Base wrapper ─────────────────────────────────────────────────────────────
+// ── Base wrapper (same shell as the other booking emails) ───────────────────
 const baseTemplate = (content: string, previewText: string) => `
 <!DOCTYPE html>
 <html lang="en">
@@ -81,27 +81,33 @@ const baseTemplate = (content: string, previewText: string) => `
 </html>
 `;
 
-// ── Template data types ───────────────────────────────────────────────────────
-export interface BookingEmailData {
+// ── Template data type ───────────────────────────────────────────────────────
+export interface CompletedEmailData {
   customerName: string;
   customerEmail: string;
   serviceName: string;
   staffName?: string;
-  appointmentDate: string; // "Friday, May 15, 2026"
-  appointmentTime: string; // "9:30 AM"
-  price?: string;          // "$50"
-  notes?: string;
+  appointmentDate: string;
+  appointmentTime: string;
+  price?: string;
   bookingId: string;
+  reviewUrl: string;
 }
-// ── 2. Reminder 24 Hours ─────────────────────────────────────────────────────
-export function reminder24hTemplate(data: BookingEmailData): { subject: string; html: string } {
-  const subject = `⏰ Reminder: ${data.serviceName} Tomorrow at ${data.appointmentTime}`;
+
+// ── Booking Completed — sent ONLY when staff mark the appointment COMPLETED
+//    (AppointmentService.completeAppointmentWithPayment). This is the one
+//    email that carries the "Write a review" call to action — a cancelled
+//    or still-pending/confirmed booking never gets this email, and the
+//    review link it carries is only ever accepted by the API for a booking
+//    that is genuinely COMPLETED and belongs to this same customer.
+export function bookingCompletedTemplate(data: CompletedEmailData): { subject: string; html: string } {
+  const subject = `💛 Thank you for choosing Crown & Glow`;
 
   const html = baseTemplate(`
     <div class="body">
-      <span class="badge badge-gold" style="margin-bottom:20px;">Appointment Tomorrow</span>
-      <h1 class="h1">See you <em>tomorrow!</em></h1>
-      <p class="subtitle">Just a friendly reminder about your upcoming appointment.</p>
+      <span class="badge badge-gold" style="margin-bottom:20px;">Completed</span>
+      <h1 class="h1">Thank you, <em>${data.customerName.split(' ')[0]}!</em></h1>
+      <p class="subtitle">We hope you loved your ${data.serviceName}.</p>
 
       <div class="detail-card">
         <table class="detail-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
@@ -122,25 +128,27 @@ export function reminder24hTemplate(data: BookingEmailData): { subject: string; 
           <td class="detail-label">Time:</td>
           <td class="detail-value">${data.appointmentTime}</td>
         </tr>
+        <tr class="detail-row">
+          <td class="detail-label">Booking ID:</td>
+          <td class="detail-value" style="font-size:12px;color:#9E968E;">#${data.bookingId}</td>
+        </tr>
         </table>
       </div>
 
       <p class="p">
-        🌟 <strong>Preparation tips for ${data.serviceName}:</strong><br/>
-        Come with clean skin, avoid heavy moisturizers, and wear comfortable clothing.
-        Arrive 5 minutes early so we can get started on time.
+        We'd love to hear how it went. A quick rating and a few words help other clients
+        find us — and help our team keep improving.
       </p>
 
       <center>
-        <a href="${BRAND.website}/dashboard" class="btn btn-gold">View Booking Details</a>
+        <a href="${data.reviewUrl}" class="btn btn-gold">Write a Review</a>
       </center>
 
       <p class="p" style="font-size:13px;color:#9E968E;">
-        Need to cancel? Please call us at ${BRAND.phone} as soon as possible.
-        Last-minute cancellations may incur a fee.
+        We can't wait to pamper you again soon.
       </p>
     </div>
-  `, `Reminder: Your ${data.serviceName} is tomorrow at ${data.appointmentTime}`);
+  `, `Thank you for choosing Crown & Glow for your ${data.serviceName}`);
 
   return { subject, html };
 }

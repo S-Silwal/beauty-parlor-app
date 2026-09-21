@@ -22,3 +22,7 @@ export interface RescheduledEmailData extends BookingEmailData {
   newTime: string;
   reason?: string;
 }
+
+export interface CompletedEmailData extends BookingEmailData {
+  reviewUrl: string;
+}
