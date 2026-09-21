@@ -31,7 +31,16 @@ import type { NextRequest } from 'next/server';
 
 const ADMIN_ROUTES     = ['/admin'];
 const CUSTOMER_ROUTES  = ['/dashboard'];
-const PROTECTED_ROUTES = ['/booking', '/my-bookings'];
+// '/booking' deliberately isn't gated here (see the trust-boundary note
+// above): this Edge check runs against a short-lived (15-minute) cookie
+// that can silently expire while the tab is backgrounded, well before the
+// user's actual session/localStorage token does — a genuinely logged-in
+// customer would get bounced to /login here even though the header (which
+// reads the live AuthContext, not this cookie) still shows them signed in.
+// booking/page.tsx already has its own client-side guard that checks the
+// real, current auth state instead, so it's the one source of truth for
+// this route.
+const PROTECTED_ROUTES = ['/my-bookings'];
 const AUTH_ROUTES      = ['/login', '/register'];
 
 function decodeJwt(token: string): { role?: string; exp?: number } | null {
