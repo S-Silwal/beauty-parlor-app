@@ -24,6 +24,7 @@ import staffRoutes from "./routes/staff.routes";
 import userRoutes from "./routes/user.routes";
 import galleryRoutes from "./routes/gallery.routes";
 import heroSlideRoutes from "./routes/heroSlide.routes";
+import loginSlideRoutes from "./routes/loginSlide.routes";
 import notificationRoutes from "./routes/notification.routes";
 import reviewRoutes from "./routes/review.routes";
 
@@ -107,6 +108,7 @@ app.use("/api/staff", staffRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/gallery", galleryRoutes);
 app.use("/api/hero-slides", heroSlideRoutes);
+app.use("/api/login-slides", loginSlideRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/reviews", reviewRoutes);
 

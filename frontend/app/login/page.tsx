@@ -7,29 +7,31 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 
-// ── Slideshow images — beauty treatments ────────────────────────────────────
-const SLIDES = [
-  {
-    url: 'https://images.unsplash.com/photo-1560869713-7d0a29430803?w=1400&q=85',
-    label: 'Eyebrow Threading',
-  },
-  {
-    url: 'https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?w=1400&q=85',
-    label: 'Eyebrow Waxing',
-  },
-  {
-    url: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=1400&q=85',
-    label: 'Leg Waxing',
-  },
-  {
-    url: 'https://images.unsplash.com/photo-1519415943484-9fa1873496d4?w=1400&q=85',
-    label: 'Arm Waxing',
-  },
-  {
-    url: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=1400&q=85',
-    label: 'Hand Care',
-  },
-];
+// ── Slideshow — admin-managed via Admin → Login Slides (GET /api/login-slides).
+// See backend/src/services/loginSlide.service.ts.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+interface LoginSlideData {
+  id: string;
+  imageUrl: string;
+  label: string;
+  headline: string;
+  description: string;
+}
+
+// Shown only if the API returns nothing (backend unreachable, or every
+// slide is deactivated) — the login screen must never look broken or
+// empty. This is the original copy the page always shipped with.
+const FALLBACK_SLIDE: LoginSlideData = {
+  id: 'fallback',
+  imageUrl: 'https://images.unsplash.com/photo-1560869713-7d0a29430803?w=1400&q=85',
+  label: 'Eyebrow Threading',
+  headline: 'Where beauty meets ritual.',
+  description: 'Premium beauty treatments crafted with precision, care, and artistry — for every version of you.',
+};
+
+const AUTOPLAY_MS = 2500;  // unchanged from the previous hardcoded timing
+const CROSSFADE_MS = 700;  // unchanged crossfade duration
 
 export default function LoginPage() {
   const [email,    setEmail]    = useState('');
@@ -40,23 +42,49 @@ export default function LoginPage() {
   const [slide,    setSlide]    = useState(0);
   const [prevSlide, setPrevSlide] = useState<number | null>(null);
   const [fading,   setFading]   = useState(false);
+  const [paused,   setPaused]   = useState(false);
+  const [slides,   setSlides]   = useState<LoginSlideData[]>([]);
 
   const { login } = useAuth();
   const router    = useRouter();
 
-  // Auto-advance slideshow every 2.5 seconds
+  // Load the admin-managed slides once on mount. A failed/empty response
+  // just leaves `slides` empty, and `activeSlides` below falls back to the
+  // single safe FALLBACK_SLIDE — the login screen is never blank.
   useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/login-slides`, { cache: 'no-store' });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.slides) && data.slides.length > 0) {
+          setSlides(data.slides);
+        }
+      } catch {
+        // Backend unreachable — falls through to FALLBACK_SLIDE below.
+      }
+    })();
+  }, []);
+
+  const activeSlides = slides.length > 0 ? slides : [FALLBACK_SLIDE];
+  const isStatic = activeSlides.length === 1;
+
+  // Auto-advance — skipped for a single slide, while paused (hover/focus),
+  // or when the visitor's OS asks for reduced motion.
+  useEffect(() => {
+    if (isStatic || paused) return;
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
     const timer = setInterval(() => {
       setPrevSlide(slide);
       setFading(true);
       setTimeout(() => {
-        setSlide(s => (s + 1) % SLIDES.length);
+        setSlide(s => (s + 1) % activeSlides.length);
         setFading(false);
         setPrevSlide(null);
-      }, 700); // crossfade duration
-    }, 2500);
+      }, CROSSFADE_MS);
+    }, AUTOPLAY_MS);
     return () => clearInterval(timer);
-  }, [slide]);
+  }, [slide, isStatic, paused, activeSlides.length]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -347,14 +375,21 @@ export default function LoginPage() {
 
       <div className="lg">
 
-        {/* ── Left: Slideshow ── */}
-        <div className="lg-visual" suppressHydrationWarning>
+        {/* ── Left: Slideshow (admin-managed — Admin → Login Slides) ── */}
+        <div
+          className="lg-visual"
+          suppressHydrationWarning
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+          onFocus={() => setPaused(true)}
+          onBlur={() => setPaused(false)}
+        >
 
           {/* All slide images stacked, crossfade via opacity */}
-          {SLIDES.map((s, i) => (
+          {activeSlides.map((s, i) => (
             <Image
-              key={s.url}
-              src={s.url}
+              key={s.id}
+              src={s.imageUrl}
               alt={s.label}
               fill
               sizes="50vw"
@@ -377,28 +412,31 @@ export default function LoginPage() {
               {/* Current treatment label */}
               <div className="lg-slide-label" suppressHydrationWarning>
                 <span className="lg-slide-label-dot" />
-                {SLIDES[slide].label}
+                {activeSlides[slide]?.label}
               </div>
 
               <h2 className="lg-tagline">
-                Where beauty<br />meets <em>ritual.</em>
+                {activeSlides[slide]?.headline}
               </h2>
               <p className="lg-visual-sub" suppressHydrationWarning>
-                Premium beauty treatments crafted with precision,
-                care, and artistry — for every version of you.
+                {activeSlides[slide]?.description}
               </p>
 
-              {/* Dot indicators */}
-              <div className="lg-dots" suppressHydrationWarning>
-                {SLIDES.map((_, i) => (
-                  <button
-                    key={i}
-                    className={`lg-dot${i === slide ? ' on' : ''}`}
-                    onClick={() => setSlide(i)}
-                    aria-label={`Go to slide ${i + 1}`}
-                  />
-                ))}
-              </div>
+              {/* Dot indicators — hidden entirely for a single slide, so a
+                  lone active slide (or the fallback) never shows an empty-
+                  looking one-dot carousel. */}
+              {!isStatic && (
+                <div className="lg-dots" suppressHydrationWarning>
+                  {activeSlides.map((_, i) => (
+                    <button
+                      key={i}
+                      className={`lg-dot${i === slide ? ' on' : ''}`}
+                      onClick={() => setSlide(i)}
+                      aria-label={`Go to slide ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

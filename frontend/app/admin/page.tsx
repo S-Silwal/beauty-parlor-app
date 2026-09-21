@@ -71,6 +71,18 @@ interface HeroSlideItem {
   isActive: boolean;
 }
 
+// Admin-side shape of a login-page slideshow slide (see GET /api/login-slides/admin).
+interface LoginSlideItem {
+  id: string;
+  imageUrl: string;
+  imagePublicId?: string | null;
+  label: string;
+  headline: string;
+  description: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
 type ServiceCategory = 'EYEBROW_LASH' | 'WAXING' | 'FACIAL_SKINCARE';
 
 interface Service {
@@ -115,7 +127,7 @@ const SERVICE_CATEGORIES: { value: ServiceCategory; label: string }[] = [
   { value: 'FACIAL_SKINCARE', label: 'Facials & Skincare' },
 ];
 
-type AdminTab = 'overview' | 'bookings' | 'requests' | 'staff' | 'gallery' | 'services' | 'hero';
+type AdminTab = 'overview' | 'bookings' | 'requests' | 'staff' | 'gallery' | 'services' | 'hero' | 'loginSlides';
 
 interface ChangeRequest {
   id: string;
@@ -194,6 +206,16 @@ export default function AdminPanel() {
   const [heroSlides, setHeroSlides]           = useState<HeroSlideItem[]>([]);
   const [showHeroForm, setShowHeroForm]       = useState(false);
   const [editingHeroId, setEditingHeroId]     = useState<string | null>(null);
+  const [loginSlides, setLoginSlides]         = useState<LoginSlideItem[]>([]);
+  const [showLoginSlideForm, setShowLoginSlideForm] = useState(false);
+  const [editingLoginSlideId, setEditingLoginSlideId] = useState<string | null>(null);
+  const [loginSlideForm, setLoginSlideForm]   = useState({ label: '', headline: '', description: '', isActive: true });
+  const [loginSlideLoading, setLoginSlideLoading] = useState(false);
+  const [selectedLoginSlideFile, setSelectedLoginSlideFile] = useState<File | null>(null);
+  const [loginSlidePreviewUrl, setLoginSlidePreviewUrl] = useState<string | null>(null);
+  const [loginSlideUploading, setLoginSlideUploading] = useState(false);
+  const [loginSlideUploadProgress, setLoginSlideUploadProgress] = useState(0);
+  const loginSlideFileInputRef                = useRef<HTMLInputElement>(null);
   const [heroForm, setHeroForm]               = useState({
     title: '', titleAccent: '', description: '', ctaLabel: '', ctaHref: '', isActive: true,
   });
@@ -277,6 +299,15 @@ export default function AdminPanel() {
     } catch (err) { console.error('Failed to fetch services', err); }
   };
 
+  const fetchLoginSlides = async () => {
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/login-slides/admin`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+      const data  = await res.json();
+      if (data.success) setLoginSlides(data.slides || []);
+    } catch { /* left as [] — the tab shows its own empty state */ }
+  };
+
   const fetchHeroSlides = async () => {
     try {
       const token = api.getToken();
@@ -307,7 +338,7 @@ export default function AdminPanel() {
     if (!user || !isAdmin) return;
 
     (async () => {
-      await Promise.all([fetchBookings(), fetchStaff(), fetchAccounts(), fetchGallery(), fetchServices(), fetchChangeRequests(), fetchHeroSlides()]);
+      await Promise.all([fetchBookings(), fetchStaff(), fetchAccounts(), fetchGallery(), fetchServices(), fetchChangeRequests(), fetchHeroSlides(), fetchLoginSlides()]);
     })();
 
     const socket = initSocket();
@@ -865,6 +896,154 @@ export default function AdminPanel() {
     } catch { showToast('Failed to remove hero slide', 'error'); }
   };
 
+  // ── Login-page slideshow slides — same shape of flow as the homepage
+  // hero above, minus the CTA fields (this is a decorative backdrop
+  // behind Sign In, not a clickable banner). See LoginSlideService.
+  const emptyLoginSlideForm = { label: '', headline: '', description: '', isActive: true };
+
+  const openAddLoginSlide = () => {
+    setEditingLoginSlideId(null);
+    setLoginSlideForm(emptyLoginSlideForm);
+    setSelectedLoginSlideFile(null);
+    setLoginSlidePreviewUrl(null);
+    setShowLoginSlideForm(true);
+  };
+
+  const openEditLoginSlide = (s: LoginSlideItem) => {
+    setEditingLoginSlideId(s.id);
+    setLoginSlideForm({
+      label: s.label,
+      headline: s.headline,
+      description: s.description,
+      isActive: s.isActive,
+    });
+    setSelectedLoginSlideFile(null);
+    setLoginSlidePreviewUrl(s.imageUrl);
+    setShowLoginSlideForm(true);
+  };
+
+  const closeLoginSlideForm = () => {
+    setShowLoginSlideForm(false);
+    setEditingLoginSlideId(null);
+    setLoginSlideForm(emptyLoginSlideForm);
+    setSelectedLoginSlideFile(null);
+    setLoginSlidePreviewUrl(null);
+    if (loginSlideFileInputRef.current) loginSlideFileInputRef.current.value = '';
+  };
+
+  const handleLoginSlideFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { showToast('Only JPG, PNG and WebP images are allowed', 'error'); return; }
+    if (file.size > 10 * 1024 * 1024) { showToast('Image must be under 10MB', 'error'); return; }
+    setSelectedLoginSlideFile(file);
+    setLoginSlidePreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleSaveLoginSlide = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const isEdit = !!editingLoginSlideId;
+    if (!isEdit && !selectedLoginSlideFile) { showToast('Please select a photo', 'error'); return; }
+    if (!loginSlideForm.label.trim() || !loginSlideForm.headline.trim() || !loginSlideForm.description.trim()) return;
+
+    setLoginSlideLoading(true);
+    try {
+      const token = api.getToken();
+      let imageUrl: string | undefined;
+      let imagePublicId: string | undefined;
+
+      // Only touch Cloudinary if the admin picked a new photo — a text-only
+      // edit never re-uploads or replaces the existing photo.
+      if (selectedLoginSlideFile) {
+        setLoginSlideUploading(true); setLoginSlideUploadProgress(20);
+        const sigRes  = await fetch(`${API}/api/login-slides/signed-url`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+        const sigData = await sigRes.json();
+        if (!sigData.success) throw new Error('Failed to get upload signature');
+        const { signature, timestamp, apiKey, folder, allowedFormats, uploadUrl } = sigData;
+        setLoginSlideUploadProgress(45);
+        const formData = new FormData();
+        formData.append('file', selectedLoginSlideFile);
+        formData.append('signature', signature);
+        formData.append('timestamp', String(timestamp));
+        formData.append('api_key', apiKey);
+        formData.append('folder', folder);
+        // Must match exactly what the backend signed — Cloudinary rejects
+        // the request if the params sent don't match the signed string.
+        formData.append('allowed_formats', allowedFormats);
+        const uploadRes  = await fetch(uploadUrl, { method: 'POST', body: formData });
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) throw new Error(uploadData.error?.message || 'Cloudinary upload failed');
+        imageUrl = uploadData.secure_url;
+        imagePublicId = uploadData.public_id;
+        setLoginSlideUploadProgress(85);
+      }
+
+      const res = await fetch(`${API}/api/login-slides${isEdit ? `/${editingLoginSlideId}` : ''}`, {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({
+          label:        loginSlideForm.label,
+          headline:     loginSlideForm.headline,
+          description:  loginSlideForm.description,
+          isActive:     loginSlideForm.isActive,
+          ...(imageUrl ? { imageUrl, imagePublicId } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isEdit ? 'Login slide updated' : 'Login slide added');
+        closeLoginSlideForm();
+        fetchLoginSlides();
+      } else showToast(data.message || `Failed to ${isEdit ? 'update' : 'add'} login slide`, 'error');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'add'} login slide`, 'error');
+    } finally {
+      setLoginSlideLoading(false); setLoginSlideUploading(false); setLoginSlideUploadProgress(0);
+    }
+  };
+
+  const handleToggleLoginSlideActive = async (s: LoginSlideItem) => {
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/login-slides/${s.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({ isActive: !s.isActive }),
+      });
+      const data = await res.json();
+      if (data.success) { showToast(s.isActive ? 'Slide deactivated' : 'Slide activated'); fetchLoginSlides(); }
+      else showToast(data.message || 'Failed to update slide', 'error');
+    } catch { showToast('Failed to update slide', 'error'); }
+  };
+
+  const handleReorderLoginSlide = async (id: string, direction: 'up' | 'down') => {
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/login-slides/${id}/reorder`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({ direction }),
+      });
+      const data = await res.json();
+      if (data.success) setLoginSlides(data.slides || []);
+      else showToast(data.message || 'Failed to reorder slides', 'error');
+    } catch { showToast('Failed to reorder slides', 'error'); }
+  };
+
+  const handleDeleteLoginSlide = async (id: string, label: string) => {
+    if (!confirm(`Remove the "${label}" login slide? This deletes its photo permanently.`)) return;
+    try {
+      const token = api.getToken();
+      const res   = await fetch(`${API}/api/login-slides/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+      const data  = await res.json();
+      if (data.success) { showToast('Login slide removed'); fetchLoginSlides(); }
+      else showToast(data.message || 'Failed to remove login slide', 'error');
+    } catch { showToast('Failed to remove login slide', 'error'); }
+  };
+
   const revenue = bookings
     .filter(b => b.status === 'COMPLETED' && b.payment_status === 'PAID')
     .reduce((sum, b) => sum + Number(b.total_price), 0);
@@ -1039,6 +1218,12 @@ export default function AdminPanel() {
         .ap-hero-preview-h1 em{font-style:italic;color:#D4B896;}
         .ap-hero-preview-p{font-size:12px;font-weight:300;color:#D9D1C7;max-width:360px;line-height:1.6;margin:0 0 16px;}
         .ap-hero-preview-cta{display:inline-block;width:fit-content;background:transparent;color:#F7F3EE;border:1px solid #D4B896;font-family:'Jost',sans-serif;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:9px 18px;border-radius:2px;}
+        .ap-login-preview{position:relative;border-radius:6px;overflow:hidden;background-size:cover;background-position:center;background-color:#1a1510;padding:28px 22px;margin-top:20px;min-height:220px;display:flex;flex-direction:column;justify-content:flex-end;}
+        .ap-login-preview::before{content:'';position:absolute;inset:0;background:linear-gradient(to top,rgba(20,16,12,.86) 0%,rgba(20,16,12,.62) 26%,rgba(20,16,12,.22) 48%,rgba(20,16,12,0) 66%);}
+        .ap-login-preview-label{position:relative;display:inline-flex;align-items:center;gap:7px;width:fit-content;background:rgba(247,243,238,.16);border:1px solid rgba(212,184,150,.3);border-radius:2px;padding:6px 12px;font-family:'Jost',sans-serif;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#D4B896;margin-bottom:14px;}
+        .ap-login-preview-h2{position:relative;font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;color:#F7F3EE;line-height:1.15;margin:0 0 10px;}
+        .ap-login-preview-h2 em{font-style:italic;color:#D4B896;}
+        .ap-login-preview-p{position:relative;font-size:12px;font-weight:300;color:#D9D1C7;max-width:340px;line-height:1.6;margin:0;}
       `}</style>
 
       {toast && (
@@ -1092,6 +1277,7 @@ export default function AdminPanel() {
             { key:'services', label:`Services (${services.length})` },
             { key:'gallery',  label:`Gallery (${gallery.length})` },
             { key:'hero',     label:`Hero (${heroSlides.length})` },
+            { key:'loginSlides', label:`Login Slides (${loginSlides.length})` },
           ] as { key: AdminTab; label: string; badge?: number }[]).map(t => (
             <button key={t.key} className={`ap-tab${activeTab === t.key ? ' on' : ''}`} onClick={() => setActiveTab(t.key)}>
               {t.label}
@@ -1606,6 +1792,50 @@ export default function AdminPanel() {
             </>
           )}
 
+          {/* ── Login Slides ── */}
+          {activeTab === 'loginSlides' && (
+            <>
+              <div className="ap-section-head">
+                <h2 className="ap-section-title">Login Page <em style={{ fontStyle:'italic', color:'#B89A6A' }}>Slider</em></h2>
+                <button className="ap-add-btn" onClick={openAddLoginSlide}>+ Add Slide</button>
+              </div>
+              <p style={{ fontSize:13, color:'#9E968E', marginTop:-12, marginBottom:24, maxWidth:640, lineHeight:1.6 }}>
+                Controls the rotating photo behind Sign In — upload a photo, edit the label/headline/description, and save. No code change or redeploy needed.
+                With two or more active slides the login page automatically rotates through them; with exactly one, it displays as a static image. With zero, a safe fallback image and copy is shown so login never looks broken.
+              </p>
+              {loginSlides.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'60px 24px', background:'#fff', border:'1px solid #EDE6DC', borderRadius:6 }}>
+                  <p style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:24, color:'#9E968E', marginBottom:12 }}>No login slides yet</p>
+                  <button className="ap-add-btn" onClick={openAddLoginSlide}>Add your first slide</button>
+                </div>
+              ) : (
+                <div className="ap-staff-grid">
+                  {loginSlides.map((s, i) => (
+                    <div key={s.id} className="ap-staff-card">
+                      <div className="ap-staff-thumb">
+                        <Image src={s.imageUrl} alt={s.label} fill sizes="(max-width: 900px) 100vw, 33vw" />
+                      </div>
+                      <h3 className="ap-staff-name">{s.headline}</h3>
+                      <p className="ap-staff-spec">Slide {i + 1} of {loginSlides.length} · Order {s.sortOrder}</p>
+                      <div className="ap-staff-info">
+                        <p>Label: <strong>{s.label}</strong></p>
+                        <p style={{ marginTop:6 }}>{s.description}</p>
+                        <p style={{ marginTop:6 }}>Status: <span style={{ color:s.isActive ? '#065F46' : '#991B1B', fontWeight:600 }}>{s.isActive ? 'Active' : 'Inactive'}</span></p>
+                      </div>
+                      <div className="ap-staff-actions" style={{ flexWrap:'wrap' }}>
+                        <button className="ap-staff-edit" onClick={() => handleReorderLoginSlide(s.id, 'up')} disabled={i === 0} title="Move earlier">&uarr;</button>
+                        <button className="ap-staff-edit" onClick={() => handleReorderLoginSlide(s.id, 'down')} disabled={i === loginSlides.length - 1} title="Move later">&darr;</button>
+                        <button className="ap-staff-edit" onClick={() => handleToggleLoginSlideActive(s)}>{s.isActive ? 'Deactivate' : 'Activate'}</button>
+                        <button className="ap-staff-edit" onClick={() => openEditLoginSlide(s)}>Edit</button>
+                        <button className="ap-staff-remove" onClick={() => handleDeleteLoginSlide(s.id, s.label)}>Remove</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
         </div>
       )}
 
@@ -1856,6 +2086,77 @@ export default function AdminPanel() {
                   {heroLoading ? (editingHeroId ? 'Saving…' : 'Adding…') : (editingHeroId ? 'Save Changes' : 'Add Slide')}
                 </button>
                 <button type="button" className="ap-form-cancel" onClick={closeHeroForm}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Login Slide Modal */}
+      {showLoginSlideForm && (
+        <div className="ap-form-overlay" onClick={closeLoginSlideForm}>
+          <div className="ap-form-card" onClick={e => e.stopPropagation()} style={{ maxWidth:560 }}>
+            <h2 className="ap-form-title">{editingLoginSlideId ? 'Edit Login Slide' : 'Add Login Slide'}</h2>
+            <form onSubmit={handleSaveLoginSlide}>
+              <div className="ap-form-field" style={{ marginTop:0 }}>
+                <label className="ap-form-label">Photo {editingLoginSlideId ? '' : '*'}</label>
+                <div className="ap-drop-zone" onClick={() => loginSlideFileInputRef.current?.click()}>
+                  <input ref={loginSlideFileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleLoginSlideFileSelect} style={{ display:'none' }}/>
+                  {loginSlidePreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- may be a local blob: preview or an already-uploaded remote image
+                    <img src={loginSlidePreviewUrl} alt="Preview" className="ap-preview"/>
+                  ) : (
+                    <>
+                      <div className="ap-drop-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+                          <polyline points="21,15 16,10 5,21"/>
+                        </svg>
+                      </div>
+                      <p className="ap-drop-text">Click to select photo</p>
+                      <p className="ap-drop-hint">JPG, PNG or WebP &middot; Max 10MB</p>
+                    </>
+                  )}
+                </div>
+                {selectedLoginSlideFile && <p style={{ fontSize:12, color:'#9E968E', marginTop:8, textAlign:'center' }}>{selectedLoginSlideFile.name} &middot; {(selectedLoginSlideFile.size/1024/1024).toFixed(2)}MB</p>}
+                {loginSlideUploading && <div className="ap-progress"><div className="ap-progress-bar" style={{ width:`${loginSlideUploadProgress}%` }}/></div>}
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Label *</label>
+                <input className="ap-form-input" type="text" required value={loginSlideForm.label} placeholder="Eyebrow Waxing" onChange={e => setLoginSlideForm(p => ({ ...p, label:e.target.value }))}/>
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Headline *</label>
+                <input className="ap-form-input" type="text" required value={loginSlideForm.headline} placeholder="Where beauty meets ritual." onChange={e => setLoginSlideForm(p => ({ ...p, headline:e.target.value }))}/>
+              </div>
+              <div className="ap-form-field">
+                <label className="ap-form-label">Description *</label>
+                <input className="ap-form-input" type="text" required value={loginSlideForm.description} placeholder="Premium beauty treatments crafted with precision, care, and artistry — for every version of you." onChange={e => setLoginSlideForm(p => ({ ...p, description:e.target.value }))}/>
+              </div>
+              {editingLoginSlideId && (
+                <label className="ap-form-checkbox">
+                  <input type="checkbox" checked={loginSlideForm.isActive} onChange={e => setLoginSlideForm(p => ({ ...p, isActive:e.target.checked }))}/>
+                  <span>Active (shown in the login page rotation)</span>
+                </label>
+              )}
+
+              {/* Live preview — same overlay/typography the login page uses. */}
+              <div
+                className="ap-login-preview"
+                style={{ backgroundImage: `url('${loginSlidePreviewUrl || ''}')` }}
+              >
+                <span className="ap-login-preview-label">{loginSlideForm.label || 'Eyebrow Waxing'}</span>
+                <p className="ap-login-preview-h2">{loginSlideForm.headline || 'Where beauty meets ritual.'}</p>
+                <p className="ap-login-preview-p">
+                  {loginSlideForm.description || 'Premium beauty treatments crafted with precision, care, and artistry — for every version of you.'}
+                </p>
+              </div>
+
+              <div className="ap-form-actions">
+                <button type="submit" className="ap-form-submit" disabled={loginSlideLoading}>
+                  {loginSlideLoading ? (editingLoginSlideId ? 'Saving…' : 'Adding…') : (editingLoginSlideId ? 'Save Changes' : 'Add Slide')}
+                </button>
+                <button type="button" className="ap-form-cancel" onClick={closeLoginSlideForm}>Cancel</button>
               </div>
             </form>
           </div>
