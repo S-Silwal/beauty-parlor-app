@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 
 interface Booking {
@@ -52,23 +52,59 @@ function StarPicker({
   );
 }
 
-export default function MyBookings() {
+function MyBookingsContent() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [reviews, setReviews]   = useState<Record<string, MyReview>>({});
   const [loading, setLoading]   = useState(true);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  // Which booking's "rate this service" form is currently open, and its draft.
+  // Which booking's "rate this service" form is currently open (from a
+  // plain click), and its draft.
   const [openId, setOpenId]         = useState<string | null>(null);
   const [draftRating, setDraftRating] = useState(0);
   const [draftComment, setDraftComment] = useState("");
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [formError, setFormError]   = useState("");
-  // Set only when a `?review=<bookingId>` link (from the "Write a Review"
-  // email button) can't be honored as-is — booking not found, not yet
-  // completed, or already reviewed — so the customer gets an explanation
-  // instead of the page silently doing nothing.
-  const [reviewNotice, setReviewNotice] = useState("");
+
+  // A `?review=<bookingId>` deep link — the button in the "booking
+  // completed" email points here — auto-opens that booking's form. All of
+  // this is DERIVED during render (never set from an effect): React's own
+  // guidance is that data computed from props/state/URL belongs in the
+  // render body, not in a `useEffect` that turns around and calls
+  // setState. `dismissedReviewId` is the one piece of real state, needed
+  // so the customer can close the auto-opened form instead of having it
+  // reopen on every render.
+  const [dismissedReviewId, setDismissedReviewId] = useState<string | null>(null);
+  const requestedReviewId = searchParams.get("review");
+  const reviewTarget = requestedReviewId
+    ? bookings.find(b => b.id === requestedReviewId)
+    : undefined;
+
+  // Set only when a `?review=<bookingId>` link can't be honored as-is —
+  // booking not found, not yet completed, or already reviewed — so the
+  // customer gets an explanation instead of the page silently doing
+  // nothing. The real authorization check still happens server-side on
+  // submit (ReviewService.createReview); this is just UX.
+  const reviewNotice = (!loading && requestedReviewId)
+    ? (!reviewTarget
+        ? "We couldn't find that booking on your account."
+        : reviewTarget.status !== "COMPLETED"
+          ? "That booking hasn't been completed yet, so it can't be reviewed until after your appointment."
+          : reviews[requestedReviewId]
+            ? "You've already submitted a review for that booking."
+            : "")
+    : "";
+
+  const autoOpenId = (reviewTarget
+    && reviewTarget.status === "COMPLETED"
+    && !reviews[reviewTarget.id]
+    && dismissedReviewId !== reviewTarget.id)
+    ? reviewTarget.id
+    : null;
+
+  // A plain click always wins over the deep link once one has happened.
+  const activeOpenId = openId ?? autoOpenId;
 
   const fetchAll = useCallback(async () => {
     const token = api.getToken();
@@ -111,33 +147,16 @@ export default function MyBookings() {
     })();
   }, [fetchAll]);
 
-  // Honor a `?review=<bookingId>` deep link — the button in the "booking
-  // completed" email points here. Only ever auto-opens the form for a
-  // booking that's actually in THIS customer's own list (getMyBookings is
-  // already scoped server-side to the logged-in user) and eligible; the
-  // real authorization check still happens server-side on submit
-  // (ReviewService.createReview), this is just UX.
+  // The only actual side effect the deep link needs: scroll the
+  // auto-opened form into view once it's rendered. This never calls
+  // setState, so it's a plain effect, not a derived-state one.
   useEffect(() => {
-    if (loading) return;
-    const bookingId = new URLSearchParams(window.location.search).get("review");
-    if (!bookingId) return;
-
-    const target = bookings.find(b => b.id === bookingId);
-    if (!target) {
-      setReviewNotice("We couldn't find that booking on your account.");
-    } else if (target.status !== "COMPLETED") {
-      setReviewNotice("That booking hasn't been completed yet, so it can't be reviewed until after your appointment.");
-    } else if (reviews[bookingId]) {
-      setReviewNotice("You've already submitted a review for that booking.");
-    } else {
-      openRatingForm(bookingId);
-      // Let the rating form actually render before scrolling to it.
-      setTimeout(() => {
-        document.getElementById(`booking-${bookingId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 50);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, bookings, reviews]);
+    if (!autoOpenId) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`booking-${autoOpenId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [autoOpenId]);
 
   const openRatingForm = (bookingId: string) => {
     setOpenId(bookingId);
@@ -147,6 +166,9 @@ export default function MyBookings() {
   };
 
   const closeRatingForm = () => {
+    // If this form was auto-opened from the email link, remember that the
+    // customer dismissed it so it doesn't just reopen on the next render.
+    if (autoOpenId) setDismissedReviewId(autoOpenId);
     setOpenId(null);
     setFormError("");
   };
@@ -240,7 +262,7 @@ export default function MyBookings() {
                             <p className="text-sm text-gray-500 italic mt-2">&quot;{myReview.comment}&quot;</p>
                           )}
                         </div>
-                      ) : openId === booking.id ? (
+                      ) : activeOpenId === booking.id ? (
                         <div>
                           <p className="text-sm font-medium mb-2">Rate this service</p>
                           <StarPicker value={draftRating} onChange={setDraftRating} />
@@ -285,5 +307,13 @@ export default function MyBookings() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function MyBookings() {
+  return (
+    <Suspense fallback={<div className="text-center py-20">Loading your appointments...</div>}>
+      <MyBookingsContent />
+    </Suspense>
   );
 }
