@@ -149,8 +149,6 @@ export default async function HomePage() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Jost:wght@300;400;500;600;700&display=swap');
-
         .hm {
           --cream:    #F7F3EE;
           --cream-md: #EDE6DC;
@@ -162,7 +160,7 @@ export default async function HomePage() {
           --soft:     #9E968E;
           background: var(--cream);
           color: var(--charcoal);
-          font-family: 'Jost', sans-serif;
+          font-family: var(--font-body), sans-serif;
         }
 
 
@@ -174,11 +172,13 @@ export default async function HomePage() {
           gap: 32px; text-align: center;
         }
         .hm-stat-val {
-          font-family: 'Cormorant Garamond', serif; font-size: 44px; font-weight: 300;
+          font-family: var(--font-ui), sans-serif; font-size: 40px; font-weight: 700;
+          font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
           color: var(--gold-lt); line-height: 1; margin-bottom: 8px;
         }
         .hm-stat-label {
-          font-size: 10px; font-weight: 600; letter-spacing: .14em;
+          font-family: var(--font-ui), sans-serif;
+          font-size: 11px; font-weight: 600; letter-spacing: .14em;
           text-transform: uppercase; color: var(--soft);
         }
         /* The one clickable stat — opens /reviews. Kept visually close to
@@ -198,18 +198,22 @@ export default async function HomePage() {
         .hm-section { padding: 100px 0; }
         .hm-section-header { text-align: center; margin-bottom: 56px; }
         .hm-kicker {
+          font-family: var(--font-ui), sans-serif;
           font-size: 11px; font-weight: 600; letter-spacing: .2em;
           text-transform: uppercase; color: var(--gold); margin-bottom: 12px;
         }
         .hm-section-title {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: clamp(32px, 4.5vw, 50px); font-weight: 400;
-          margin: 0; line-height: 1.1;
+          /* Plain roman — the gold italic accent word is reserved for the
+             homepage hero (see HeroSlider.tsx .hm-h1 em), not repeated here. */
+          font-family: var(--font-display), Georgia, serif;
+          font-size: clamp(1.75rem, 3.5vw, 2.75rem); font-weight: 500;
+          letter-spacing: -0.005em;
+          margin: 0; line-height: 1.15;
         }
-        .hm-section-title em { font-style: italic; color: var(--gold); }
         .hm-section-sub {
-          font-size: 15px; font-weight: 300; color: var(--mid);
-          max-width: 480px; margin: 14px auto 0; line-height: 1.8;
+          font-family: var(--font-body), sans-serif;
+          font-size: 16px; font-weight: 400; color: var(--mid);
+          max-width: 480px; margin: 14px auto 0; line-height: 1.75;
         }
 
         /* ── Services grid ── */
@@ -230,10 +234,10 @@ export default async function HomePage() {
         .hm-service-card:hover .hm-service-img { transform: scale(1.06); }
         .hm-service-body { padding: 26px 26px 28px; }
         .hm-service-title {
-          font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 500;
-          margin: 0 0 10px; color: var(--charcoal);
+          font-family: var(--font-display), Georgia, serif; font-size: 20px; font-weight: 400;
+          line-height: 1.3; margin: 0 0 10px; color: var(--charcoal);
         }
-        .hm-service-desc { font-size: 14px; font-weight: 300; color: var(--mid); line-height: 1.75; margin: 0 0 16px; }
+        .hm-service-desc { font-family: var(--font-body), sans-serif; font-size: 14px; font-weight: 400; color: var(--mid); line-height: 1.7; margin: 0 0 16px; }
         /* Shown only when a service has no admin-uploaded photo yet — a
            neutral placeholder, never a substitute stock photo. */
         .hm-service-img-empty { width: 100%; height: 100%; background: var(--cream-md); }
@@ -242,13 +246,18 @@ export default async function HomePage() {
           gap: 12px; padding-top: 16px; border-top: 1px solid var(--cream-md);
         }
         .hm-service-meta { display: flex; flex-direction: column; gap: 4px; }
-        .hm-service-duration { font-size: 11px; color: var(--soft); }
+        .hm-service-duration {
+          font-family: var(--font-ui), sans-serif; font-size: 11px; font-weight: 500;
+          letter-spacing: .04em; font-variant-numeric: tabular-nums; color: var(--soft);
+        }
         .hm-service-price {
-          font-family: 'Cormorant Garamond', serif; font-size: 20px; font-weight: 500;
+          font-family: var(--font-ui), sans-serif; font-size: 18px; font-weight: 600;
+          letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
           color: var(--charcoal);
         }
         .hm-service-book {
-          font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+          font-family: var(--font-ui), sans-serif;
+          font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
           color: var(--charcoal); background: transparent; border: 1.5px solid var(--gold);
           border-radius: 2px; padding: 10px 18px; text-decoration: none;
           transition: background .2s ease, color .2s ease;
@@ -294,13 +303,14 @@ export default async function HomePage() {
         .hm-banner-orb-a { width: 420px; height: 420px; background: var(--gold); top: -140px; right: -100px; }
         .hm-banner-orb-b { width: 300px; height: 300px; background: #c09060; bottom: -80px; left: -60px; }
         .hm-banner-title {
-          font-family: 'Cormorant Garamond', serif; font-size: clamp(34px, 5vw, 58px); font-weight: 300;
-          color: #F7F3EE; margin: 0 0 18px; line-height: 1.1; position: relative; z-index: 1;
+          font-family: var(--font-display), Georgia, serif; font-size: clamp(1.75rem, 3.5vw, 2.75rem); font-weight: 500;
+          letter-spacing: -0.005em;
+          color: #F7F3EE; margin: 0 0 18px; line-height: 1.15; position: relative; z-index: 1;
         }
-        .hm-banner-title em { font-style: italic; color: var(--gold-lt); }
         .hm-banner-sub {
-          font-size: 15px; font-weight: 300; color: #A8A09A;
-          max-width: 420px; margin: 0 auto 32px; line-height: 1.8; position: relative; z-index: 1;
+          font-family: var(--font-body), sans-serif;
+          font-size: 16px; font-weight: 400; color: #A8A09A;
+          max-width: 420px; margin: 0 auto 32px; line-height: 1.75; position: relative; z-index: 1;
         }
 
         @media (max-width: 900px) {
@@ -313,7 +323,7 @@ export default async function HomePage() {
           .hm-section { padding: 52px 0; }
           .hm-stats { padding: 40px 18px; }
           .hm-stats-grid { gap: 20px 16px; }
-          .hm-stat-val { font-size: 34px; }
+          .hm-stat-val { font-size: 32px; }
           .hm-banner { padding: 64px 18px; }
           .hm-service-body { padding: 20px 20px 22px; }
           .hm-review-card { padding: 24px 20px; }
@@ -352,7 +362,7 @@ export default async function HomePage() {
             <div className="hm-container">
               <div className="hm-section-header">
                 <p className="hm-kicker">What We Offer</p>
-                <h2 className="hm-section-title">Signature <em>Treatments</em></h2>
+                <h2 className="hm-section-title">Signature Treatments</h2>
                 <p className="hm-section-sub">
                   From precision brow shaping to restorative facials, every service is
                   tailored to bring out your natural radiance.
@@ -391,7 +401,7 @@ export default async function HomePage() {
           <div className="hm-container">
             <div className="hm-section-header">
               <p className="hm-kicker">Why Crown &amp; Glow</p>
-              <h2 className="hm-section-title">Beauty, <em>Done Right</em></h2>
+              <h2 className="hm-section-title">Beauty, Done Right</h2>
             </div>
             <div className="hm-values-grid">
               {VALUES.map(v => (
@@ -414,7 +424,7 @@ export default async function HomePage() {
             <div className="hm-container">
               <div className="hm-section-header">
                 <p className="hm-kicker">Client Love</p>
-                <h2 className="hm-section-title">What Our <em>Clients Say</em></h2>
+                <h2 className="hm-section-title">What Our Clients Say</h2>
                 <p className="hm-section-sub">
                   Real reviews from real appointments — no account needed to read them.
                 </p>
@@ -443,7 +453,7 @@ export default async function HomePage() {
         <section className="hm-banner">
           <div className="hm-banner-orb hm-banner-orb-a" />
           <div className="hm-banner-orb hm-banner-orb-b" />
-          <h2 className="hm-banner-title">Ready to <em>Glow?</em></h2>
+          <h2 className="hm-banner-title">Ready to Glow?</h2>
           <p className="hm-banner-sub">
             Book your appointment today and experience the Crown &amp; Glow difference for yourself.
           </p>

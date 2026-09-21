@@ -61,8 +61,6 @@ export default function AboutPage() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Jost:wght@300;400;500;600&display=swap');
-
         .ab {
           --cream:    #F7F3EE;
           --cream-md: #EDE6DC;
@@ -91,18 +89,22 @@ export default function AboutPage() {
         .ab-orb-a { width:500px;height:500px;background:var(--gold);top:-160px;right:-100px; }
         .ab-orb-b { width:300px;height:300px;background:#c09060;bottom:-80px;left:-60px; }
         .ab-eyebrow {
-          display:inline-block; font-size:11px; font-weight:500;
+          font-family: var(--font-ui), sans-serif;
+          display:inline-block; font-size:11px; font-weight:600;
           letter-spacing:.22em; text-transform:uppercase;
           color:var(--gold-lt); margin-bottom:18px;
         }
         .ab-h1 {
-          font-family:'Cormorant Garamond',serif;
-          font-size:clamp(52px,8vw,90px); font-weight:300;
-          color:#F7F3EE; line-height:1.0; margin:0 0 24px;
+          /* Plain roman — the gold-italic accent word lives on the
+             homepage hero only, not repeated here. */
+          font-family: var(--font-display), Georgia, serif;
+          font-size:clamp(2.75rem,6vw,4.5rem); font-weight:400;
+          letter-spacing:-0.01em;
+          color:#F7F3EE; line-height:1.05; margin:0 0 24px;
         }
-        .ab-h1 em { font-style:italic; color:var(--gold-lt); }
         .ab-hero-p {
-          font-size:17px; font-weight:300; color:#B0A89E;
+          font-family: var(--font-body), sans-serif;
+          font-size:17px; font-weight:400; color:#B0A89E;
           max-width:500px; margin:0 auto; line-height:1.85;
         }
         .ab-rule { width:36px;height:1px;background:var(--gold);margin:30px auto 0;opacity:.5; }
@@ -117,24 +119,27 @@ export default function AboutPage() {
           margin: 0 auto;
         }
         .ab-section-kicker {
-          font-size: 11px; font-weight: 500;
+          font-family: var(--font-ui), sans-serif;
+          font-size: 11px; font-weight: 600;
           letter-spacing: .18em; text-transform: uppercase;
           color: var(--gold); margin-bottom: 14px;
         }
         .ab-section-title {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: clamp(34px,4vw,50px); font-weight: 400;
-          margin: 0 0 24px; line-height: 1.1;
+          font-family: var(--font-display), Georgia, serif;
+          font-size: clamp(1.75rem,3.5vw,2.75rem); font-weight: 500;
+          letter-spacing: -0.005em;
+          margin: 0 0 24px; line-height: 1.15;
         }
         .ab-story-text {
-          font-size: 17px; font-weight: 300; color: var(--mid);
-          line-height: 2; margin-bottom: 20px;
+          font-family: var(--font-body), sans-serif;
+          font-size: 17px; font-weight: 400; color: var(--mid);
+          line-height: 1.9; margin-bottom: 20px;
         }
         .ab-cta {
           display: inline-block; margin-top: 36px;
           background: var(--charcoal); color: var(--cream);
-          font-family: 'Jost', sans-serif; font-size: 11px;
-          font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+          font-family: var(--font-ui), sans-serif; font-size: 12px;
+          font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
           padding: 15px 32px; border-radius: 2px; border: none;
           cursor: pointer;
           transition: background .22s, color .22s, transform .22s;
@@ -146,10 +151,11 @@ export default function AboutPage() {
 
         /* ── Services line (quiet row under the story) ── */
         .ab-services-line {
+          font-family: var(--font-ui), sans-serif;
           max-width: 680px; margin: 0 auto;
           padding: 0 24px 90px;
           text-align: center;
-          font-size: 12px; font-weight: 500;
+          font-size: 12px; font-weight: 600;
           letter-spacing: .18em; text-transform: uppercase;
           color: var(--gold);
         }
@@ -183,24 +189,27 @@ export default function AboutPage() {
           display: flex; align-items: center; justify-content: center;
           background: linear-gradient(135deg, var(--cream-md), var(--gold-lt));
           color: var(--charcoal);
-          font-family: 'Cormorant Garamond', serif;
-          font-size: 44px; font-weight: 500; letter-spacing: .04em;
+          font-family: var(--font-display), Georgia, serif;
+          font-size: 40px; font-weight: 500; letter-spacing: .04em;
         }
         .ab-member:hover .ab-member-img { transform: scale(1.05); }
         .ab-member-body { padding: 24px 26px 28px; }
         .ab-member-name {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: 22px; font-weight: 500;
+          font-family: var(--font-display), Georgia, serif;
+          font-size: 20px; font-weight: 400;
+          line-height: 1.3;
           margin: 0 0 4px; color: var(--charcoal);
         }
         .ab-member-role {
+          font-family: var(--font-ui), sans-serif;
           font-size: 11px; font-weight: 600; letter-spacing: .1em;
           text-transform: uppercase; color: var(--gold);
           margin-bottom: 14px;
         }
         .ab-member-bio {
-          font-size: 13px; font-weight: 300; color: var(--mid);
-          line-height: 1.8;
+          font-family: var(--font-body), sans-serif;
+          font-size: 13px; font-weight: 400; color: var(--mid);
+          line-height: 1.75;
         }
 
         /* ── CTA Banner ── */
@@ -216,22 +225,23 @@ export default function AboutPage() {
         .ab-banner-orb-a { width:400px;height:400px;background:var(--gold);top:-120px;left:-100px; }
         .ab-banner-orb-b { width:300px;height:300px;background:#c09060;bottom:-80px;right:-60px; }
         .ab-banner-title {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: clamp(36px, 5vw, 64px); font-weight: 300;
-          color: #F7F3EE; margin: 0 0 20px; line-height: 1.1;
+          font-family: var(--font-display), Georgia, serif;
+          font-size: clamp(1.75rem, 3.5vw, 2.75rem); font-weight: 500;
+          letter-spacing: -0.005em;
+          color: #F7F3EE; margin: 0 0 20px; line-height: 1.15;
           position: relative; z-index: 1;
         }
-        .ab-banner-title em { font-style: italic; color: var(--gold-lt); }
         .ab-banner-sub {
-          font-size: 16px; font-weight: 300; color: #A8A09A;
+          font-family: var(--font-body), sans-serif;
+          font-size: 16px; font-weight: 400; color: #A8A09A;
           max-width: 440px; margin: 0 auto 36px;
-          line-height: 1.8; position: relative; z-index: 1;
+          line-height: 1.75; position: relative; z-index: 1;
         }
         .ab-banner-btn {
           position: relative; z-index: 1;
           background: var(--gold); color: var(--charcoal);
-          font-family: 'Jost', sans-serif; font-size: 11px;
-          font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+          font-family: var(--font-ui), sans-serif; font-size: 12px;
+          font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
           padding: 16px 40px; border-radius: 2px; border: none;
           cursor: pointer;
           transition: background .22s, transform .22s;
@@ -260,7 +270,7 @@ export default function AboutPage() {
           <div className="ab-orb ab-orb-a" />
           <div className="ab-orb ab-orb-b" />
           <p className="ab-eyebrow">Crown &amp; Glow · Indianapolis</p>
-          <h1 className="ab-h1">About <em>Us</em></h1>
+          <h1 className="ab-h1">About Us</h1>
           <p className="ab-hero-p">
             We are a team of passionate beauty artisans dedicated
             to making every client feel extraordinary.
@@ -348,7 +358,7 @@ export default function AboutPage() {
           <div className="ab-banner-orb ab-banner-orb-a" />
           <div className="ab-banner-orb ab-banner-orb-b" />
           <h2 className="ab-banner-title">
-            Ready to <em>Glow?</em>
+            Ready to Glow?
           </h2>
           <p className="ab-banner-sub">
             Book your appointment today and experience the Crown &amp; Glow difference for yourself.

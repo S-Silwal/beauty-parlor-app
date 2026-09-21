@@ -100,8 +100,6 @@ export default function ServicesPage() {
     <div style={{ minHeight: '100vh', background: '#F7F3EE', fontFamily: "'Jost', sans-serif" }}>
 
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Jost:wght@300;400;500;600;700&display=swap');
-
         /* ── Pill tab bar ── */
         .sv-tabbar {
           background: #fff;
@@ -162,15 +160,18 @@ export default function ServicesPage() {
 
         .sv-header { margin-bottom: 44px; }
         .sv-kicker {
+          font-family: var(--font-ui), sans-serif;
           font-size: 11px; font-weight: 600; letter-spacing: .2em;
           text-transform: uppercase; color: #B89A6A; margin-bottom: 10px;
         }
         .sv-title {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: clamp(30px, 4vw, 46px); font-weight: 400;
-          color: #2C2825; margin: 0 0 12px; line-height: 1.1;
+          font-family: var(--font-display), Georgia, serif;
+          font-size: clamp(1.75rem, 3.5vw, 2.75rem); font-weight: 500;
+          letter-spacing: -0.005em;
+          color: #2C2825; margin: 0 0 12px; line-height: 1.15;
         }
         .sv-count {
+          font-family: var(--font-ui), sans-serif;
           font-size: 12px; letter-spacing: .1em;
           text-transform: uppercase; color: #9E968E;
         }
@@ -216,13 +217,14 @@ export default function ServicesPage() {
 
         .sv-card-body { padding: 24px 24px 22px; }
         .sv-card-name {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: 21px; font-weight: 500;
-          color: #2C2825; margin: 0 0 9px; line-height: 1.2;
+          font-family: var(--font-display), Georgia, serif;
+          font-size: 20px; font-weight: 400;
+          color: #2C2825; margin: 0 0 9px; line-height: 1.3;
         }
         .sv-card-desc {
-          font-size: 14px; font-weight: 300; color: #6B635A;
-          line-height: 1.75; margin: 0 0 20px;
+          font-family: var(--font-body), sans-serif;
+          font-size: 14px; font-weight: 400; color: #6B635A;
+          line-height: 1.7; margin: 0 0 20px;
           display: -webkit-box; -webkit-line-clamp: 2;
           -webkit-box-orient: vertical; overflow: hidden;
         }
@@ -232,22 +234,27 @@ export default function ServicesPage() {
         }
         .sv-card-meta { display: flex; flex-direction: column; gap: 4px; }
         .sv-duration {
-          font-size: 11px; letter-spacing: .08em;
+          font-family: var(--font-ui), sans-serif;
+          font-size: 11px; font-weight: 500; letter-spacing: .06em;
+          font-variant-numeric: tabular-nums;
           text-transform: uppercase; color: #9E968E;
         }
         .sv-price {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: 27px; font-weight: 500; color: #2C2825; line-height: 1;
+          font-family: var(--font-ui), sans-serif;
+          font-size: 22px; font-weight: 600; letter-spacing: -0.01em;
+          font-variant-numeric: tabular-nums;
+          color: #2C2825; line-height: 1;
         }
         .sv-price-sym {
-          font-size: 13px; font-weight: 400; color: #B89A6A;
+          font-family: var(--font-ui), sans-serif;
+          font-size: 13px; font-weight: 500; color: #B89A6A;
           vertical-align: super; margin-right: 1px;
         }
         .sv-book {
           border: none; cursor: pointer;
           background: #2C2825; color: #F7F3EE;
-          font-family: 'Jost', sans-serif; font-size: 11px;
-          font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+          font-family: var(--font-ui), sans-serif; font-size: 11px;
+          font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
           padding: 12px 20px; border-radius: 2px;
           transition: background .22s, transform .2s; white-space: nowrap;
         }
@@ -256,8 +263,8 @@ export default function ServicesPage() {
         /* Empty */
         .sv-empty { grid-column: 1/-1; text-align: center; padding: 80px 24px; }
         .sv-empty-title {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: 30px; font-weight: 300; color: #6B635A; margin-bottom: 10px;
+          font-family: var(--font-display), Georgia, serif;
+          font-size: 26px; font-weight: 400; color: #6B635A; margin-bottom: 10px;
         }
         .sv-empty-sub { font-size: 14px; color: #9E968E; }
 
@@ -292,13 +299,13 @@ export default function ServicesPage() {
       }}>
         <div style={{ position:'absolute', width:480, height:480, borderRadius:'50%', background:'#B89A6A', filter:'blur(90px)', opacity:.12, top:-160, right:-100, pointerEvents:'none' }} />
         <div style={{ position:'absolute', width:280, height:280, borderRadius:'50%', background:'#c09060', filter:'blur(80px)', opacity:.10, bottom:-80, left:-60, pointerEvents:'none' }} />
-        <p style={{ fontSize:11, fontWeight:600, letterSpacing:'.22em', textTransform:'uppercase', color:'#D4B896', marginBottom:16, position:'relative' }}>
+        <p style={{ fontFamily:'var(--font-ui), sans-serif', fontSize:11, fontWeight:600, letterSpacing:'.22em', textTransform:'uppercase', color:'#D4B896', marginBottom:16, position:'relative' }}>
           Crown &amp; Glow · Indianapolis
         </p>
-        <h1 style={{ fontFamily:"'Cormorant Garamond', serif", fontSize:'clamp(48px,8vw,88px)', fontWeight:300, color:'#F7F3EE', lineHeight:1.0, margin:'0 0 20px', position:'relative' }}>
-          Our <em style={{ fontStyle:'italic', color:'#D4B896' }}>Services</em>
+        <h1 style={{ fontFamily:'var(--font-display), Georgia, serif', fontSize:'clamp(2.75rem,6vw,4.5rem)', fontWeight:400, letterSpacing:'-0.01em', color:'#F7F3EE', lineHeight:1.05, margin:'0 0 20px', position:'relative' }}>
+          Our Services
         </h1>
-        <p style={{ fontSize:16, fontWeight:300, color:'#A8A09A', maxWidth:440, margin:'0 auto', lineHeight:1.85, position:'relative' }}>
+        <p style={{ fontFamily:'var(--font-body), sans-serif', fontSize:16, fontWeight:400, color:'#A8A09A', maxWidth:440, margin:'0 auto', lineHeight:1.85, position:'relative' }}>
           Premium beauty rituals crafted with precision, care, and artistry — for every version of you.
         </p>
         <div style={{ width:36, height:1, background:'#B89A6A', margin:'28px auto 0', opacity:.5 }} />

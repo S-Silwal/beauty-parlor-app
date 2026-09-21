@@ -1,16 +1,36 @@
 // app/layout.tsx
 import type { Metadata } from "next";
-import { Didact_Gothic } from "next/font/google";
+import { Fraunces, Karla, Archivo } from "next/font/google";
 import "./globals.css";
 import SiteChrome from "../components/SiteChrome";
 import { AuthProvider } from "@/context/AuthContext";
 
-// Individual pages each pull in their own display faces (Cormorant Garamond,
-// Jost, etc.) via their own inline <style>@import — this is only the body's
-// sitewide fallback face, self-hosted through next/font instead of a <link>
-// so it doesn't trigger a render-blocking request or the single-page-font
-// lint warning.
-const didactGothic = Didact_Gothic({ subsets: ["latin"], weight: "400" });
+// Sitewide type system — three roles, self-hosted through next/font instead
+// of the per-page <style>@import this replaced (Cormorant Garamond + Jost),
+// so there's one font load instead of one per page and no render-blocking
+// Google Fonts request.
+//   --font-display : editorial serif for heroes, section titles, card names
+//   --font-body    : warm humanist sans for prose (About story, hero sub, descriptions)
+//   --font-ui      : neo-grotesk for chrome — buttons, labels, prices, durations, stats
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  style: ["normal", "italic"],
+  variable: "--font-display",
+  display: "swap",
+});
+const karla = Karla({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-body",
+  display: "swap",
+});
+const archivo = Archivo({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-ui",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Crown & Glow | Premium Beauty Salon Indianapolis",
@@ -31,7 +51,10 @@ export default function RootLayout({
             out to near-invisible on a light background (e.g. the login page). */}
         <meta name="color-scheme" content="light" />
       </head>
-      <body className={didactGothic.className} style={{ margin: 0, background: "#faf6f1" }}>
+      <body
+        className={`${fraunces.variable} ${karla.variable} ${archivo.variable} ${karla.className}`}
+        style={{ margin: 0, background: "#faf6f1" }}
+      >
         <AuthProvider>
           <SiteChrome>{children}</SiteChrome>
         </AuthProvider>

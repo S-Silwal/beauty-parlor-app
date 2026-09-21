@@ -30,9 +30,15 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body), "Segoe UI", Arial, sans-serif;
   overflow-x: hidden;
   max-width: 100vw;
+}
+
+/* Digits that must line up / read as precise data — prices, durations,
+   stat counters — rather than flowing display-serif ornament. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 @tailwind base;
 @tailwind components;

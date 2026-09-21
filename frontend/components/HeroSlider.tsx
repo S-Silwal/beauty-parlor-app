@@ -105,13 +105,18 @@ export default function HeroSlider({ slides }: { slides: HeroSlide[] }) {
           background: var(--gold-lt); margin-bottom: 30px;
         }
         .hm-h1 {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: clamp(46px, 7vw, 80px); font-weight: 300;
-          color: #F7F3EE; line-height: 1.08; margin: 0 0 26px;
+          /* Homepage hero is the one place a gold-italic accent word is
+             still allowed (see .hm-h1 em below) — every other headline on
+             the site now renders as one plain roman color/weight. */
+          font-family: var(--font-display), Georgia, serif;
+          font-size: clamp(2.75rem, 6vw, 4.5rem); font-weight: 400;
+          letter-spacing: -0.01em;
+          color: #F7F3EE; line-height: 1.05; margin: 0 0 26px;
         }
-        .hm-h1 em { font-style: italic; color: var(--gold-lt); }
+        .hm-h1 em { font-style: italic; font-weight: 400; color: var(--gold-lt); }
         .hm-hero-p {
-          font-size: 17px; font-weight: 300; color: #D9D1C7;
+          font-family: var(--font-body), sans-serif;
+          font-size: 17px; font-weight: 400; color: #D9D1C7;
           max-width: 460px; line-height: 1.85; margin: 0 0 44px;
         }
         .hm-hero-actions { display: flex; gap: 16px; flex-wrap: wrap; }
@@ -119,8 +124,8 @@ export default function HeroSlider({ slides }: { slides: HeroSlide[] }) {
           display: inline-flex; align-items: center; gap: 10px;
           background: transparent; color: #F7F3EE;
           border: 1.5px solid var(--gold-lt);
-          font-family: 'Jost', sans-serif; font-size: 12px; font-weight: 600;
-          letter-spacing: .16em; text-transform: uppercase;
+          font-family: var(--font-ui), sans-serif; font-size: 13px; font-weight: 600;
+          letter-spacing: .08em; text-transform: uppercase;
           padding: 18px 38px; border-radius: 2px; text-decoration: none;
           transition: background .25s ease, color .25s ease, gap .25s ease;
         }

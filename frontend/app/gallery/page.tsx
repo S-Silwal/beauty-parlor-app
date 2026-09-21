@@ -69,8 +69,6 @@ export default function GalleryPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#F7F3EE', fontFamily: "'Jost', sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Jost:wght@300;400;500;600;700&display=swap');
-
         /* ── Pill tab bar ── */
         .gl-tabbar {
           position: sticky; top: 72px; z-index: 30;
@@ -228,13 +226,13 @@ export default function GalleryPage() {
       }}>
         <div style={{ position:'absolute', width:480, height:480, borderRadius:'50%', background:'#B89A6A', filter:'blur(90px)', opacity:.12, top:-160, right:-100, pointerEvents:'none' }} />
         <div style={{ position:'absolute', width:280, height:280, borderRadius:'50%', background:'#c09060', filter:'blur(80px)', opacity:.10, bottom:-80, left:-60, pointerEvents:'none' }} />
-        <p style={{ fontSize:11, fontWeight:600, letterSpacing:'.22em', textTransform:'uppercase', color:'#D4B896', marginBottom:16, position:'relative' }}>
+        <p style={{ fontFamily:'var(--font-ui), sans-serif', fontSize:11, fontWeight:600, letterSpacing:'.22em', textTransform:'uppercase', color:'#D4B896', marginBottom:16, position:'relative' }}>
           Crown &amp; Glow · Indianapolis
         </p>
-        <h1 style={{ fontFamily:"'Cormorant Garamond', serif", fontSize:'clamp(48px,8vw,88px)', fontWeight:300, color:'#F7F3EE', lineHeight:1.0, margin:'0 0 20px', position:'relative' }}>
-          Our <em style={{ fontStyle:'italic', color:'#D4B896' }}>Gallery</em>
+        <h1 style={{ fontFamily:'var(--font-display), Georgia, serif', fontSize:'clamp(2.75rem,6vw,4.5rem)', fontWeight:400, letterSpacing:'-0.01em', color:'#F7F3EE', lineHeight:1.05, margin:'0 0 20px', position:'relative' }}>
+          Our Gallery
         </h1>
-        <p style={{ fontSize:16, fontWeight:300, color:'#A8A09A', maxWidth:440, margin:'0 auto', lineHeight:1.85, position:'relative' }}>
+        <p style={{ fontFamily:'var(--font-body), sans-serif', fontSize:16, fontWeight:400, color:'#A8A09A', maxWidth:440, margin:'0 auto', lineHeight:1.85, position:'relative' }}>
           Real transformations. Real results. Real beauty.
         </p>
         <div style={{ width:36, height:1, background:'#B89A6A', margin:'28px auto 0', opacity:.5 }} />
@@ -266,14 +264,14 @@ export default function GalleryPage() {
 
         {/* Section header */}
         <div style={{ marginBottom: 40 }}>
-          <p style={{ fontSize:11, fontWeight:600, letterSpacing:'.2em', textTransform:'uppercase', color:'#B89A6A', marginBottom:10 }}>
+          <p style={{ fontFamily:'var(--font-ui), sans-serif', fontSize:11, fontWeight:600, letterSpacing:'.2em', textTransform:'uppercase', color:'#B89A6A', marginBottom:10 }}>
             Crown &amp; Glow
           </p>
-          <h2 style={{ fontFamily:"'Cormorant Garamond', serif", fontSize:'clamp(28px,4vw,42px)', fontWeight:400, color:'#2C2825', margin:'0 0 8px', lineHeight:1.1 }}>
+          <h2 style={{ fontFamily:'var(--font-display), Georgia, serif', fontSize:'clamp(1.5rem,3vw,2.25rem)', fontWeight:500, letterSpacing:'-0.005em', color:'#2C2825', margin:'0 0 8px', lineHeight:1.15 }}>
             {currentLabel}
           </h2>
           {!loading && (
-            <p style={{ fontSize:12, letterSpacing:'.1em', textTransform:'uppercase', color:'#9E968E' }}>
+            <p style={{ fontFamily:'var(--font-ui), sans-serif', fontSize:12, letterSpacing:'.1em', textTransform:'uppercase', color:'#9E968E' }}>
               {filteredImages.length} {filteredImages.length === 1 ? 'photo' : 'photos'}
             </p>
           )}
@@ -293,7 +291,7 @@ export default function GalleryPage() {
         {/* Empty */}
         {!loading && filteredImages.length === 0 && (
           <div style={{ textAlign:'center', padding:'80px 24px' }}>
-            <p style={{ fontFamily:"'Cormorant Garamond', serif", fontSize:32, fontWeight:300, color:'#6B635A', marginBottom:10 }}>
+            <p style={{ fontFamily:'var(--font-display), Georgia, serif', fontSize:26, fontWeight:400, color:'#6B635A', marginBottom:10 }}>
               No photos yet
             </p>
             <p style={{ fontSize:14, color:'#9E968E' }}>
