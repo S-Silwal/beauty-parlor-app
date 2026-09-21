@@ -123,7 +123,10 @@ export default async function ReviewsPage() {
           color: var(--mid); margin: 0;
         }
 
-        @media (max-width: 900px) {
+        @media (max-width: 900px) and (min-width: 641px) {
+          .rv-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 640px) {
           .rv-grid { grid-template-columns: 1fr; }
         }
       `}</style>
