@@ -16,6 +16,15 @@ function localTodayStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Same local-calendar-day comparison the backend's
+// assertNoDuplicateServiceSameDay() uses — never compare via raw UTC
+// substring/day math, for the same reason localTodayStr() above doesn't.
+function isSameLocalDay(isoDateTime: string, yyyyMmDd: string): boolean {
+  const d = new Date(isoDateTime);
+  const dayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return dayStr === yyyyMmDd;
+}
+
 interface BookableService {
   id: string;
   name: string;
@@ -26,6 +35,32 @@ interface BookableService {
 interface BookableStaff {
   id: string;
   name: string;
+}
+
+// Just enough of GET /api/appointments/my-bookings's shape to run the
+// same-service-same-day pre-check client-side. service_id is a plain
+// scalar column on Appointment (always present in the response) even
+// though the nested `service` relation is what most of the UI reads.
+interface MyBooking {
+  id: string;
+  service_id: string;
+  appointment_date: string;
+  status: string;
+}
+
+// Snapshot of what was actually confirmed by the server, captured at the
+// moment of a successful booking. The draft form fields (selectedSlot etc.)
+// get reset/reloaded right after success (loadAvailableSlots clears
+// selectedSlot as part of its normal "date/staff changed" behavior), so the
+// summary can't keep reading live draft state once a booking succeeds — it
+// needs its own copy that isn't touched by that reload.
+interface ConfirmedBooking {
+  serviceName: string;
+  duration: number;
+  price: number;
+  date: string;
+  slot: string;
+  staffName?: string;
 }
 
 export default function BookingPage() {
@@ -53,6 +88,8 @@ function BookingForm() {
   const [bookingLoading, setBookingLoading]   = useState(false);
   const [error, setError]                     = useState('');
   const [successMsg, setSuccessMsg]           = useState('');
+  const [lastBooking, setLastBooking]         = useState<ConfirmedBooking | null>(null);
+  const [myBookings, setMyBookings]           = useState<MyBooking[]>([]);
 
   // Wait for AuthContext's async auth check before deciding to redirect —
   // otherwise a genuinely logged-in user gets bounced to /login on refresh
@@ -65,13 +102,20 @@ function BookingForm() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [servicesRes, staffRes] = await Promise.all([
+        const token = api.getToken();
+        const [servicesRes, staffRes, myBookingsRes] = await Promise.all([
           api.getServices(),
           api.getStaff(),
+          // Needed for the same-service-same-day pre-check below — only a
+          // client-side convenience (the backend re-checks authoritatively
+          // on submit either way), so a failure here is swallowed rather
+          // than blocking the rest of the page.
+          token ? api.getMyBookings(token).catch(() => null) : Promise.resolve(null),
         ]);
         const loadedServices: BookableService[] = servicesRes.success ? (servicesRes.services || []) : [];
         if (servicesRes.success) setServices(loadedServices);
         if (staffRes?.success) setStaff(staffRes.staff || []);
+        if (myBookingsRes?.success) setMyBookings(myBookingsRes.appointments || []);
 
         // Deep-link from a "Book Now" on a specific service card (homepage
         // Signature Treatments, /services, ...) — e.g. /booking?service=<id>.
@@ -120,7 +164,7 @@ function BookingForm() {
     // Belt-and-suspenders against a double-click/double-submit slipping in
     // before React re-renders the button as disabled — the `disabled`
     // prop below already covers the normal case, this guards the gap.
-    if (bookingLoading) return;
+    if (bookingLoading || lastBooking) return;
 
     if (!selectedService || !selectedDate || !selectedSlot) {
       setError('Please select service, date and time slot');
@@ -151,6 +195,18 @@ function BookingForm() {
       const res = await api.bookAppointment(appointmentData, token);
 
       if (res.success) {
+        // Snapshot the confirmed details before anything below (notably
+        // loadAvailableSlots, which resets selectedSlot as part of its
+        // normal reload behavior) can change the live draft state out from
+        // under the summary.
+        setLastBooking({
+          serviceName: services.find(s => s.id === selectedService)?.name ?? '',
+          duration:    services.find(s => s.id === selectedService)?.duration ?? 0,
+          price:       services.find(s => s.id === selectedService)?.price ?? 0,
+          date:        selectedDate,
+          slot:        selectedSlot,
+          staffName:   selectedStaff ? staff.find(s => s.id === selectedStaff)?.name : undefined,
+        });
         setSuccessMsg(
           `✅ Appointment booked successfully for ${formatDate(selectedDate)} at ${formatTime(selectedSlot)}!`
         );
@@ -159,14 +215,31 @@ function BookingForm() {
         // itself for a second click, and admin's Recent Bookings picks
         // this up via the bookingCreated socket event — but this tab's
         // own slot list can go stale (e.g. duration-based neighboring
-        // slots), so refresh it against the server's view.
+        // slots), so refresh it against the server's view. lastBooking
+        // (set above) keeps the summary showing the confirmed time even
+        // though this clears selectedSlot.
         loadAvailableSlots();
+        // Also refresh myBookings so the same-service-same-day pre-check
+        // (duplicateBooking, below) knows about this booking immediately —
+        // otherwise a customer could hit 'Book another appointment' and
+        // pick the same service/day again before this tab ever reloads.
+        api.getMyBookings(token).then(r => { if (r?.success) setMyBookings(r.appointments || []); }).catch(() => {});
       } else if (res.error === 'CUSTOMER_TIME_CONFLICT') {
         setError('You already have an appointment at this time.');
       } else if (res.error === 'DUPLICATE_BOOKING') {
         setError('You already have this exact appointment booked.');
       } else if (res.error === 'SLOT_UNAVAILABLE') {
         setError(res.message || 'That time is no longer available. Please choose a different slot.');
+      } else if (res.error === 'DUPLICATE_SERVICE_SAME_DAY') {
+        // Defense-in-depth: the pre-check below (duplicateBooking) should
+        // already have hidden the slots/disabled Confirm before this could be
+        // submitted, but myBookings can be stale (another tab, another
+        // device) — never show a generic success then fail, always surface
+        // the server's own reason.
+        setError(res.message || 'You already have this service booked on this day. Please choose a different service or day.');
+        if (token) {
+          api.getMyBookings(token).then(r => { if (r?.success) setMyBookings(r.appointments || []); }).catch(() => {});
+        }
       } else {
         setError(res.message || 'Booking failed');
       }
@@ -200,6 +273,25 @@ function BookingForm() {
     return `${displayHour}:${minute.toString().padStart(2, '0')} ${ampm}`;
   };
 
+  // Same-service-same-day pre-check (client-side convenience mirroring
+  // the backend's assertNoDuplicateServiceSameDay) — staff-agnostic on
+  // purpose, matching that function's stricter rule: an existing active
+  // booking for this service on this day blocks a new one regardless of
+  // which staff member either booking uses.
+  const duplicateBooking = selectedService && selectedDate
+    ? myBookings.find(b =>
+        b.service_id === selectedService &&
+        (b.status === 'PENDING' || b.status === 'CONFIRMED') &&
+        isSameLocalDay(b.appointment_date, selectedDate)
+      )
+    : undefined;
+
+  // Keep the Booking Summary from showing a stale selected time once the
+  // slot picker above is replaced by the duplicate-booking message.
+  useEffect(() => {
+    if (duplicateBooking) setSelectedSlot('');
+  }, [duplicateBooking?.id]);
+
   if (authLoading || !user) return null;
 
   return (
@@ -220,6 +312,7 @@ function BookingForm() {
           <button
             onClick={() => {
               setSuccessMsg('');
+              setLastBooking(null);
               setSelectedService('');
               setSelectedDate('');
               setSelectedSlot('');
@@ -285,29 +378,38 @@ function BookingForm() {
           {/* Time slots */}
           <div>
             <label className="block text-sm font-medium mb-2">Available Time Slots</label>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
-              {loading ? (
-                <p className="col-span-4 text-gray-500">Loading available slots...</p>
-              ) : availableSlots.length > 0 ? (
-                availableSlots.map(slot => (
-                  <button
-                    key={slot}
-                    onClick={() => setSelectedSlot(slot)}
-                    className={`p-3 rounded-xl border text-sm font-medium transition ${
-                      selectedSlot === slot
-                        ? 'bg-pink-600 text-white border-pink-600'
-                        : 'hover:bg-gray-100 border-gray-300'
-                    }`}
-                  >
-                    {formatTime(slot)}
-                  </button>
-                ))
-              ) : selectedDate ? (
-                <p className="col-span-4 text-gray-500">No slots available for this date</p>
-              ) : (
-                <p className="col-span-4 text-gray-400">Please select a date first</p>
-              )}
-            </div>
+            {duplicateBooking ? (
+              <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3">
+                You already have {services.find(s => s.id === selectedService)?.name} booked on{' '}
+                {formatDate(selectedDate)} at {formatTime(
+                  new Date(duplicateBooking.appointment_date).toTimeString().slice(0, 5)
+                )}. Choose a different service, or a different day.
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
+                {loading ? (
+                  <p className="col-span-4 text-gray-500">Loading available slots...</p>
+                ) : availableSlots.length > 0 ? (
+                  availableSlots.map(slot => (
+                    <button
+                      key={slot}
+                      onClick={() => setSelectedSlot(slot)}
+                      className={`p-3 rounded-xl border text-sm font-medium transition ${
+                        selectedSlot === slot
+                          ? 'bg-pink-600 text-white border-pink-600'
+                          : 'hover:bg-gray-100 border-gray-300'
+                      }`}
+                    >
+                      {formatTime(slot)}
+                    </button>
+                  ))
+                ) : selectedDate ? (
+                  <p className="col-span-4 text-gray-500">No slots available for this date</p>
+                ) : (
+                  <p className="col-span-4 text-gray-400">Please select a date first</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -315,7 +417,39 @@ function BookingForm() {
         <div className="bg-white p-5 sm:p-8 rounded-3xl shadow border h-fit lg:sticky lg:top-6">
           <h3 className="text-2xl font-semibold mb-6">Booking Summary</h3>
 
-          {selectedService ? (
+          {lastBooking ? (
+            // Confirmed booking — show the snapshot taken at success time,
+            // not the live draft fields (which loadAvailableSlots has since
+            // reset as part of refreshing the slot list).
+            <div className="mb-6 p-5 bg-gray-50 rounded-2xl space-y-3 text-sm">
+              <p>
+                <strong>Service:</strong>{' '}
+                {lastBooking.serviceName}
+              </p>
+              <p>
+                <strong>Duration:</strong>{' '}
+                {lastBooking.duration} min
+              </p>
+              <p>
+                <strong>Date:</strong>{' '}
+                {formatDate(lastBooking.date)}
+              </p>
+              <p>
+                <strong>Time:</strong>{' '}
+                <span className="text-pink-600 font-semibold">{formatTime(lastBooking.slot)}</span>
+              </p>
+              {lastBooking.staffName && (
+                <p>
+                  <strong>Staff:</strong>{' '}
+                  {lastBooking.staffName}
+                </p>
+              )}
+              <p>
+                <strong>Price:</strong>{' '}
+                ${lastBooking.price}
+              </p>
+            </div>
+          ) : selectedService ? (
             <div className="mb-6 p-5 bg-gray-50 rounded-2xl space-y-3 text-sm">
               <p>
                 <strong>Service:</strong>{' '}
@@ -367,7 +501,7 @@ function BookingForm() {
 
           <button
             onClick={handleBookAppointment}
-            disabled={bookingLoading || !selectedService || !selectedDate || !selectedSlot}
+            disabled={bookingLoading || !!lastBooking || !!duplicateBooking || !selectedService || !selectedDate || !selectedSlot}
             className="w-full mt-8 bg-pink-600 hover:bg-pink-700 disabled:bg-gray-400 text-white py-4 rounded-2xl font-semibold text-lg transition"
           >
             {bookingLoading ? 'Booking Appointment...' : 'Confirm & Book Appointment'}

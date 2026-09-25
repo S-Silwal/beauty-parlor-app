@@ -384,3 +384,264 @@ describe('Customer overlap enforcement (fixes: same customer double-booked acros
     expect(active.length).toBe(1);
   });
 });
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// Same-service-same-day duplicate guard — fixes the reported bug: the same
+// customer held two PENDING "Anti-Ageing Facial" bookings with the same
+// staff member on the same calendar day (12:30 PM and 2:30 PM), which
+// assertSlotAvailable() never caught because the two time ranges don't
+// overlap at all. See assertNoDuplicateServiceSameDay() in
+// appointment.service.ts.
+// ─────────────────────────────────────────────────────────────────────────
+describe('Same-service-same-day duplicate guard (fixes: same customer double-booked same service, different times)', () => {
+  const EMAIL = 'book_same_day_dup_test@example.com';
+  let token: string;
+  let serviceAId: string;
+  let serviceBId: string;
+  let staffAId: string;
+  let staffBId: string;
+  const appointmentIds: string[] = [];
+  const staffIds: string[] = [];
+  const serviceIds: string[] = [];
+
+  beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: EMAIL } });
+    await request(app).post('/api/auth/register').send({
+      name: 'Same Day Dup Customer', email: EMAIL, password: TEST_PASSWORD,
+    });
+    await prisma.user.update({ where: { email: EMAIL }, data: { is_verified: true } });
+    const login = await request(app).post('/api/auth/login').send({ email: EMAIL, password: TEST_PASSWORD });
+    token = login.body.accessToken;
+
+    const serviceA = await prisma.service.create({
+      data: { name: `Same Day Dup Facial ${Date.now()}`, category: 'FACIAL_SKINCARE', duration: 60, price: 140 },
+    });
+    serviceAId = serviceA.id;
+    serviceIds.push(serviceAId);
+
+    const serviceB = await prisma.service.create({
+      data: { name: `Same Day Dup Waxing ${Date.now()}`, category: 'WAXING', duration: 30, price: 75 },
+    });
+    serviceBId = serviceB.id;
+    serviceIds.push(serviceBId);
+
+    const staffA = await prisma.staff.create({ data: { name: `Same Day Dup Stylist A ${Date.now()}` } });
+    staffAId = staffA.id;
+    staffIds.push(staffAId);
+
+    const staffB = await prisma.staff.create({ data: { name: `Same Day Dup Stylist B ${Date.now()}` } });
+    staffBId = staffB.id;
+    staffIds.push(staffBId);
+  });
+
+  afterAll(async () => {
+    await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds } } });
+    await prisma.staff.deleteMany({ where: { id: { in: staffIds } } });
+    await prisma.service.deleteMany({ where: { id: { in: serviceIds } } });
+    await prisma.user.deleteMany({ where: { email: EMAIL } });
+  });
+
+  it('rejects the exact reported bug: same customer, same service, same staff, same day, different times → 409 DUPLICATE_SERVICE_SAME_DAY', async () => {
+    const day = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
+
+    const morning = new Date(day);
+    morning.setHours(9, 0, 0, 0);
+    const first = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, staff_id: staffAId, appointment_date: morning.toISOString() });
+    expect(first.status).toBe(201);
+    appointmentIds.push(first.body.appointment.id);
+
+    const afternoon = new Date(day);
+    afternoon.setHours(14, 0, 0, 0);
+    const second = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, staff_id: staffAId, appointment_date: afternoon.toISOString() });
+
+    expect(second.status).toBe(409);
+    expect(second.body.error).toBe('DUPLICATE_SERVICE_SAME_DAY');
+
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: EMAIL } });
+    const active = await prisma.appointment.findMany({
+      where: { user_id: user.id, service_id: serviceAId, status: { in: ['PENDING', 'CONFIRMED'] } },
+    });
+    expect(active.length).toBe(1);
+  });
+
+  it('also rejects when the second booking uses a DIFFERENT staff member — the match is intentionally staff-agnostic', async () => {
+    const day = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000);
+
+    const morning = new Date(day);
+    morning.setHours(9, 0, 0, 0);
+    const first = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, staff_id: staffAId, appointment_date: morning.toISOString() });
+    expect(first.status).toBe(201);
+    appointmentIds.push(first.body.appointment.id);
+
+    const afternoon = new Date(day);
+    afternoon.setHours(14, 0, 0, 0);
+    const second = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, staff_id: staffBId, appointment_date: afternoon.toISOString() });
+
+    expect(second.status).toBe(409);
+    expect(second.body.error).toBe('DUPLICATE_SERVICE_SAME_DAY');
+  });
+
+  it('allows a different service on the same day (facial + wax is fine)', async () => {
+    const day = new Date(Date.now() + 22 * 24 * 60 * 60 * 1000);
+
+    const morning = new Date(day);
+    morning.setHours(9, 0, 0, 0);
+    const first = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, appointment_date: morning.toISOString() });
+    expect(first.status).toBe(201);
+    appointmentIds.push(first.body.appointment.id);
+
+    const afternoon = new Date(day);
+    afternoon.setHours(14, 0, 0, 0);
+    const second = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceBId, appointment_date: afternoon.toISOString() });
+
+    expect(second.status).toBe(201);
+    appointmentIds.push(second.body.appointment.id);
+  });
+
+  it('allows re-booking the same service the same day once the first one is cancelled', async () => {
+    const day = new Date(Date.now() + 23 * 24 * 60 * 60 * 1000);
+
+    const morning = new Date(day);
+    morning.setHours(9, 0, 0, 0);
+    const first = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, appointment_date: morning.toISOString() });
+    expect(first.status).toBe(201);
+    appointmentIds.push(first.body.appointment.id);
+
+    const cancel = await request(app)
+      .delete(`/api/appointments/${first.body.appointment.id}/cancel`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(cancel.status).toBe(200);
+
+    const afternoon = new Date(day);
+    afternoon.setHours(14, 0, 0, 0);
+    const second = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, appointment_date: afternoon.toISOString() });
+
+    expect(second.status).toBe(201);
+    appointmentIds.push(second.body.appointment.id);
+  });
+
+  it('resists a parallel double POST for the same customer+service on the same day at different times', async () => {
+    const day = new Date(Date.now() + 24 * 24 * 60 * 60 * 1000);
+
+    const morning = new Date(day);
+    morning.setHours(9, 0, 0, 0);
+    const afternoon = new Date(day);
+    afternoon.setHours(15, 0, 0, 0);
+
+    const [first, second] = await Promise.all([
+      request(app)
+        .post('/api/appointments/book')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ service_id: serviceAId, staff_id: staffAId, appointment_date: morning.toISOString() }),
+      request(app)
+        .post('/api/appointments/book')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ service_id: serviceAId, staff_id: staffBId, appointment_date: afternoon.toISOString() }),
+    ]);
+
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    const winner = first.status === 201 ? first : second;
+    appointmentIds.push(winner.body.appointment.id);
+
+    const loser = first.status === 201 ? second : first;
+    expect(loser.body.error).toBe('DUPLICATE_SERVICE_SAME_DAY');
+
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: EMAIL } });
+    const active = await prisma.appointment.findMany({
+      where: { user_id: user.id, service_id: serviceAId, status: { in: ['PENDING', 'CONFIRMED'] } },
+    });
+    expect(active.length).toBe(1);
+  });
+
+  it('still rejects an identical-time overlap exactly as before — the new same-day rule does not replace it', async () => {
+    const day = new Date(Date.now() + 25 * 24 * 60 * 60 * 1000);
+    const start = new Date(day);
+    start.setHours(11, 0, 0, 0);
+
+    const first = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, staff_id: staffAId, appointment_date: start.toISOString() });
+    expect(first.status).toBe(201);
+    appointmentIds.push(first.body.appointment.id);
+
+    // Different service, same exact instant — the pre-existing time-overlap
+    // check (CUSTOMER_TIME_CONFLICT) must still fire; this isn't a
+    // same-service case so DUPLICATE_SERVICE_SAME_DAY must NOT be what
+    // rejects it.
+    const second = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceBId, staff_id: staffBId, appointment_date: start.toISOString() });
+
+    expect(second.status).toBe(409);
+    expect(second.body.error).toBe('CUSTOMER_TIME_CONFLICT');
+  });
+
+  it('rejects rescheduling a booking into a day where the same service is already booked at a different time', async () => {
+    const dayA = new Date(Date.now() + 26 * 24 * 60 * 60 * 1000);
+    dayA.setHours(9, 0, 0, 0);
+    const dayB = new Date(Date.now() + 27 * 24 * 60 * 60 * 1000);
+    dayB.setHours(9, 0, 0, 0);
+
+    const bookingOnDayA = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, appointment_date: dayA.toISOString() });
+    expect(bookingOnDayA.status).toBe(201);
+    appointmentIds.push(bookingOnDayA.body.appointment.id);
+
+    const bookingOnDayB = await request(app)
+      .post('/api/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service_id: serviceAId, appointment_date: dayB.toISOString() });
+    expect(bookingOnDayB.status).toBe(201);
+    appointmentIds.push(bookingOnDayB.body.appointment.id);
+
+    // Reschedule the day-B booking to a different TIME on day A — still a
+    // duplicate of the day-A booking's service, even though the clock time
+    // doesn't match it.
+    const newTimeOnDayA = new Date(dayA);
+    newTimeOnDayA.setHours(16, 0, 0, 0);
+    const reschedule = await request(app)
+      .patch(`/api/appointments/${bookingOnDayB.body.appointment.id}/reschedule`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ appointment_date: newTimeOnDayA.toISOString() });
+
+    expect(reschedule.status).toBe(409);
+    expect(reschedule.body.error).toBe('DUPLICATE_SERVICE_SAME_DAY');
+
+    // The booking being rescheduled must be untouched — still on day B.
+    const unchanged = await prisma.appointment.findUniqueOrThrow({
+      where: { id: bookingOnDayB.body.appointment.id },
+    });
+    expect(unchanged.appointment_date.toISOString().slice(0, 10)).toBe(dayB.toISOString().slice(0, 10));
+  });
+});

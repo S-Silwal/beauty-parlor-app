@@ -7,8 +7,8 @@
 // controller having to know or care — `next(error)` still works unchanged.
 //
 // `code` and `existingBookingId` are optional, stable machine-readable
-// fields (CUSTOMER_TIME_CONFLICT | SLOT_UNAVAILABLE | DUPLICATE_BOOKING,
-// today) so a frontend can branch on the failure reason instead of
+// fields (CUSTOMER_TIME_CONFLICT | SLOT_UNAVAILABLE | DUPLICATE_BOOKING |
+// DUPLICATE_SERVICE_SAME_DAY, today) so a frontend can branch on the failure reason instead of
 // string-matching `message`. See error.middleware.ts for how these surface
 // in the JSON response.
 export class AppError extends Error {
