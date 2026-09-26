@@ -228,6 +228,14 @@ export async function runSerializable<T>(fn: (tx: Tx) => Promise<T>): Promise<T>
       return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (err: any) {
       if (err.code === 'P2034' && attempt < SERIALIZATION_RETRY_LIMIT) continue;
+      // A unique-index violation (P2002 — e.g. appointments_customer_service_
+      // active_day_unique) means a concurrent transaction committed a
+      // conflicting row that this transaction's snapshot couldn't see.
+      // Retrying gives a fresh snapshot, so the app-level checks
+      // (DUPLICATE_BOOKING / DUPLICATE_SERVICE_SAME_DAY / slot overlap) see
+      // that row and throw their specific 409 instead of the generic
+      // "This record already exists" from error.middleware.ts.
+      if (err.code === 'P2002' && attempt < SERIALIZATION_RETRY_LIMIT) continue;
       if (err.code === 'P2034') {
         throw new AppError("This time slot was just booked by someone else. Please choose a different time.", 409);
       }

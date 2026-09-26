@@ -288,9 +288,9 @@ function BookingForm() {
 
   // Keep the Booking Summary from showing a stale selected time once the
   // slot picker above is replaced by the duplicate-booking message.
-  useEffect(() => {
-    if (duplicateBooking) setSelectedSlot('');
-  }, [duplicateBooking?.id]);
+  // Derived during render (not cleared in a useEffect) to avoid a cascading
+  // re-render — see react-hooks/set-state-in-effect.
+  const summarySlot = duplicateBooking ? '' : selectedSlot;
 
   if (authLoading || !user) return null;
 
@@ -469,8 +469,8 @@ function BookingForm() {
               </p>
               <p>
                 <strong>Time:</strong>{' '}
-                {selectedSlot
-                  ? <span className="text-pink-600 font-semibold">{formatTime(selectedSlot)}</span>
+                {summarySlot
+                  ? <span className="text-pink-600 font-semibold">{formatTime(summarySlot)}</span>
                   : <span className="text-gray-400">Not selected</span>
                 }
               </p>

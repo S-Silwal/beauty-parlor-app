@@ -573,9 +573,18 @@ describe('Same-service-same-day duplicate guard (fixes: same customer double-boo
     const loser = first.status === 201 ? second : first;
     expect(loser.body.error).toBe('DUPLICATE_SERVICE_SAME_DAY');
 
+    // Scoped to this test's day — earlier tests in this suite leave their
+    // own active serviceA bookings on other days for the same customer.
+    const dayStart = new Date(day); dayStart.setHours(0, 0, 0, 0);
+    const dayEnd   = new Date(day); dayEnd.setHours(23, 59, 59, 999);
     const user = await prisma.user.findUniqueOrThrow({ where: { email: EMAIL } });
     const active = await prisma.appointment.findMany({
-      where: { user_id: user.id, service_id: serviceAId, status: { in: ['PENDING', 'CONFIRMED'] } },
+      where: {
+        user_id: user.id,
+        service_id: serviceAId,
+        status: { in: ['PENDING', 'CONFIRMED'] },
+        appointment_date: { gte: dayStart, lte: dayEnd },
+      },
     });
     expect(active.length).toBe(1);
   });

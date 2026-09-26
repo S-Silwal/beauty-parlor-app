@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from '@jest/globals';
 import app from '../app';
 import { prisma } from '../config/database';
 
@@ -56,9 +56,18 @@ describe('Change-request eligibility', () => {
     otherServiceId = services[1].id;
   });
 
+  // Each test's fixtures are removed as soon as it finishes. They're all
+  // created directly (bypassing the booking service) for the same customer
+  // + service at hour offsets, and several land on the same calendar day
+  // (e.g. two 0.5h-out bookings, or 72h/73h/80h) — which the
+  // appointments_customer_service_active_day_unique index now rejects.
+  // Clearing them per test keeps every test independent of that rule.
+  afterEach(async () => {
+    await prisma.appointmentChangeRequest.deleteMany({ where: { id: { in: changeRequestIds.splice(0) } } });
+    await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds.splice(0) } } });
+  });
+
   afterAll(async () => {
-    await prisma.appointmentChangeRequest.deleteMany({ where: { id: { in: changeRequestIds } } });
-    await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds } } });
     await prisma.user.deleteMany({ where: { email: OWNER_EMAIL } });
   });
 
@@ -174,9 +183,14 @@ describe('Change-request approval and withdrawal', () => {
     serviceId = service.id;
   });
 
+  // Per-test fixture cleanup — same reason as the eligibility suite above
+  // (e.g. the 50h and 60h fixtures can share a calendar day).
+  afterEach(async () => {
+    await prisma.appointmentChangeRequest.deleteMany({ where: { id: { in: changeRequestIds.splice(0) } } });
+    await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds.splice(0) } } });
+  });
+
   afterAll(async () => {
-    await prisma.appointmentChangeRequest.deleteMany({ where: { id: { in: changeRequestIds } } });
-    await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds } } });
     await prisma.user.deleteMany({ where: { email: { in: [OWNER_EMAIL, ADMIN_EMAIL] } } });
   });
 
