@@ -145,6 +145,72 @@ export async function assertSlotAvailable(
   }
 }
 
+/**
+ * Rejects a new/rescheduled booking when the SAME customer already has an
+ * active (PENDING/CONFIRMED) booking for the SAME service on the SAME
+ * local salon calendar day — regardless of time of day. This is a
+ * different rule from assertSlotAvailable() above: two bookings for
+ * "Anti-Ageing Facial" at 12:30pm and 2:30pm the same day don't overlap in
+ * time at all, so the overlap check has nothing to say about them, but
+ * they're still a duplicate booking a customer almost certainly made by
+ * mistake (e.g. double-submitting from two tabs, or re-booking without
+ * noticing an existing appointment further down the day).
+ *
+ * Matching intentionally ignores staff_id — ANY existing active booking of
+ * this service on this day blocks a new one, even with a different staff
+ * member selected. That's the stricter of two reasonable interpretations
+ * (the looser one would scope the match to `staff_id: staffId ?? null` as
+ * well, allowing "same service, different staff, same day"); simpler to
+ * reason about and safer against the exact bug this was written to fix, so
+ * it's the one implemented here. Add that field back to the `where` below
+ * if the looser behavior turns out to be what's actually wanted.
+ *
+ * Must run inside the same locked (lockBookingResources), Serializable
+ * transaction as the write that follows it. The lock is always taken on
+ * `customer:${customerId}` regardless of which staff member either request
+ * used, so two concurrent requests for the same customer+service+day always
+ * serialize on that shared key even when their staff_id values differ —
+ * see lockBookingResources()'s comment for the full reasoning.
+ */
+export async function assertNoDuplicateServiceSameDay(
+  tx: Tx,
+  params: {
+    customerId: string;
+    serviceId: string;
+    date: Date;
+    excludeAppointmentId?: string;
+  }
+) {
+  const { customerId, serviceId, date, excludeAppointmentId } = params;
+
+  // Local-calendar-day bounds, built from the Date's own y/m/d components
+  // (never from ISO/UTC math) — same convention getAvailableSlots() uses
+  // for the identical reason: a UTC-based day window silently checks the
+  // wrong day for any customer/server west of UTC in the evening.
+  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const dayEnd   = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+
+  const existing = await tx.appointment.findFirst({
+    where: {
+      ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
+      status:           { in: ["PENDING", "CONFIRMED"] },
+      user_id:           customerId,
+      service_id:        serviceId,
+      appointment_date:  { gte: dayStart, lte: dayEnd },
+    },
+    select: { id: true, appointment_date: true },
+  });
+
+  if (existing) {
+    throw new AppError(
+      "You already have this service booked on this day. Please choose a different service, or a different day.",
+      409,
+      "DUPLICATE_SERVICE_SAME_DAY",
+      existing.id
+    );
+  }
+}
+
 const SERIALIZATION_RETRY_LIMIT = 3;
 
 /**
@@ -469,6 +535,16 @@ export class AppointmentService {
         );
       }
 
+      // Same-service-same-day guard — see assertNoDuplicateServiceSameDay()'s
+      // comment. Runs after the exact-duplicate check above (so an exact
+      // resubmit still gets the more specific DUPLICATE_BOOKING/idempotent-
+      // replay handling) and before the time-overlap check below.
+      await assertNoDuplicateServiceSameDay(tx, {
+        customerId: userId,
+        serviceId:  data.service_id,
+        date:       appointmentDate,
+      });
+
       await assertSlotAvailable(tx, { customerId: userId, staffId: data.staff_id, newStart, newEnd });
 
       const created = await tx.appointment.create({
@@ -563,6 +639,16 @@ export class AppointmentService {
     // see runSerializable()'s comment for why that's required.
     const updated = await runSerializable(async (tx) => {
       await lockBookingResources(tx, userId, staffId);
+      // Moving this booking to a day where the customer already has this
+      // same service (rescheduling never changes service_id, so it's always
+      // appointment.service_id) is a duplicate under the same rule bookAppointment
+      // enforces — see assertNoDuplicateServiceSameDay()'s comment.
+      await assertNoDuplicateServiceSameDay(tx, {
+        customerId:            userId,
+        serviceId:             appointment.service_id,
+        date:                  newStart,
+        excludeAppointmentId:  appointmentId,
+      });
       await assertSlotAvailable(tx, { customerId: userId, staffId, newStart, newEnd, excludeAppointmentId: appointmentId });
 
       return tx.appointment.update({
@@ -672,6 +758,17 @@ export class AppointmentService {
           const newStart = new Date(appointment.appointment_date);
           const newEnd   = new Date(newStart.getTime() + appointment.duration * 60 * 1000);
           await lockBookingResources(tx, appointment.user_id, appointment.staff_id);
+          // Admin confirming one of two same-service-same-day duplicates (the
+          // exact scenario this whole rule exists for — see
+          // assertNoDuplicateServiceSameDay()'s comment) must not be allowed to
+          // graduate a second copy to CONFIRMED just because it predates this
+          // fix or slipped in some other way.
+          await assertNoDuplicateServiceSameDay(tx, {
+            customerId:           appointment.user_id,
+            serviceId:            appointment.service_id,
+            date:                 newStart,
+            excludeAppointmentId: appointmentId,
+          });
           await assertSlotAvailable(tx, {
             customerId:           appointment.user_id,
             staffId:              appointment.staff_id,

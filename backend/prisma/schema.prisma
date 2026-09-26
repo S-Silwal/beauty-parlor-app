@@ -195,6 +195,14 @@ model Appointment {
   // up the double-booking check specifically as the table grows.
   @@index([user_id, appointment_date])
   @@index([staff_id, appointment_date])
+  // Speeds up assertNoDuplicateServiceSameDay()'s customer+service+day-range
+  // query — see the 20260925140000_add_duplicate_service_same_day_guard
+  // migration for the DB-level partial unique index enforcing this rule
+  // (a date_trunc('day', ...) expression index, not representable here in
+  // the Prisma schema DSL — same reason appointments_customer_active_start_unique
+  // from 20260916150000_add_appointment_overlap_guards has no schema.prisma
+  // counterpart either).
+  @@index([user_id, service_id, appointment_date])
   @@map("appointments")
 }
 

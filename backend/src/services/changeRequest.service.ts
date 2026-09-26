@@ -4,6 +4,7 @@ import { AppointmentStatus, ChangeRequestStatus, ChangeRequestType, Prisma } fro
 import { AppError } from "../utils/AppError";
 import {
   assertSlotAvailable,
+  assertNoDuplicateServiceSameDay,
   runSerializable,
 } from "./appointment.service";
 import { emitBookingUpdated, emitChangeRequestCreated, emitChangeRequestResolved } from "../socket";
@@ -79,10 +80,24 @@ export class ChangeRequestService {
 
     const newStart = new Date(newDate);
     const newEnd = new Date(newStart.getTime() + duration * 60 * 1000);
+    const effectiveServiceId = data.requested_service_id ?? appointment.service_id;
 
     // Same overlap rule (and the same Serializable-transaction guard against
-    // a concurrent double-book) that booking/reschedule already use.
+    // a concurrent double-book) that booking/reschedule already use, plus the
+    // same-service-same-day duplicate guard — see
+    // assertNoDuplicateServiceSameDay()'s comment in appointment.service.ts.
+    // This is only a pre-check so the customer gets an immediate, accurate
+    // error instead of submitting a request that's certain to be declined —
+    // resolve() below re-runs both checks at approval time, which is what
+    // actually guards the write (the slot/day can fill up while this request
+    // sits PENDING).
     await runSerializable(async (tx) => {
+      await assertNoDuplicateServiceSameDay(tx, {
+        customerId:            appointment.user_id,
+        serviceId:             effectiveServiceId,
+        date:                  newStart,
+        excludeAppointmentId:  appointmentId,
+      });
       await assertSlotAvailable(tx, {
         customerId: appointment.user_id,
         staffId,
@@ -242,9 +257,22 @@ export class ChangeRequestService {
     const newStart = new Date(newDate);
     const newEnd = new Date(newStart.getTime() + duration * 60 * 1000);
     const oldDate = appointment.appointment_date;
+    const effectiveServiceId = request.requested_service_id ?? appointment.service_id;
 
     try {
       const updatedAppointment = await runSerializable(async (tx) => {
+        // Authoritative re-check at approval time — the slot/day can have
+        // filled up while this request sat PENDING. See
+        // assertNoDuplicateServiceSameDay()'s comment in appointment.service.ts;
+        // this is also what stops an admin from approving a second edit request
+        // into a same-service-same-day duplicate ("Admin should not be able to
+        // confirm a second copy either").
+        await assertNoDuplicateServiceSameDay(tx, {
+          customerId:            appointment.user_id,
+          serviceId:             effectiveServiceId,
+          date:                  newStart,
+          excludeAppointmentId:  appointment.id,
+        });
         await assertSlotAvailable(tx, {
           customerId: appointment.user_id,
           staffId,

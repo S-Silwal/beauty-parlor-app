@@ -1,0 +1,27 @@
+# Normalize line endings to LF for everything Git treats as text, so a
+# checkout on Windows (CRLF-by-default via core.autocrlf) and a checkout on
+# macOS/Linux always produce byte-identical working trees. Without this,
+# any file whose on-disk line endings don't match the local machine's
+# checkout convention shows as fully modified in `git status`/`git diff`
+# even when its actual content hasn't changed — which is exactly what was
+# happening repo-wide here.
+* text=auto eol=lf
+
+# Binary assets must never go through line-ending normalization.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+
+# Windows batch/PowerShell scripts, if any get added later, should keep
+# native CRLF regardless of the blanket rule above.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
