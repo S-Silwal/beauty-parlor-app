@@ -33,23 +33,71 @@ ALTER TABLE "appointments"
   ALTER COLUMN "appointment_date" TYPE TIMESTAMPTZ(3)
   USING "appointment_date" AT TIME ZONE 'UTC';
 
--- Rebuild the same-service-same-day partial unique index (see
--- 20260925140000_add_duplicate_service_same_day_guard) so its notion of
--- "calendar day" is pinned to the salon's own zone explicitly, via a
--- literal zone name in the expression itself — never the database
--- session's ambient `timezone` GUC, which Postgres would otherwise use for
--- date_trunc() on a timestamptz and which every session/pooled connection
--- isn't guaranteed to agree on. This must be dropped and recreated rather
--- than left for Postgres's automatic index-rebuild-on-ALTER-COLUMN-TYPE,
--- which would silently reinterpret the existing expression's semantics
--- against the new timestamptz type (i.e. start depending on that same
--- ambient session timezone) instead of this explicit, deterministic one.
+-- Drop the old same-service-same-day partial unique index (see
+-- 20260925140000_add_duplicate_service_same_day_guard). It's rebuilt below
+-- on a dedicated column rather than recreated as an expression index — see
+-- the comment above appointment_local_day for why.
 DROP INDEX IF EXISTS "appointments_customer_service_active_day_unique";
 
+-- appointment_local_day holds the salon-local (America/Indiana/
+-- Indianapolis) calendar date that appointment_date falls on, as a plain
+-- DATE. It exists solely so the same-service-same-day unique index below
+-- can be built on a plain column instead of an expression: Postgres
+-- requires every function used in an index expression to be marked
+-- IMMUTABLE, and `date_trunc('day', timestamptz AT TIME ZONE
+-- 'named-zone')` is only STABLE — a named-zone conversion depends on the
+-- zone's (potentially DST-shifting) rules, which Postgres's immutability
+-- checker rejects even though the zone here is a fixed literal. A plain
+-- DATE column has no such restriction. (A GENERATED ALWAYS AS STORED
+-- column hits the identical IMMUTABLE requirement on its own generation
+-- expression, so it doesn't avoid this either — a trigger is the only way
+-- to keep this computed automatically.)
+--
+-- Nullable during backfill; NOT NULL is enforced below once every existing
+-- row has a value.
+ALTER TABLE "appointments"
+  ADD COLUMN "appointment_local_day" DATE;
+
+UPDATE "appointments"
+  SET "appointment_local_day" =
+    (("appointment_date" AT TIME ZONE 'America/Indiana/Indianapolis')::date);
+
+ALTER TABLE "appointments"
+  ALTER COLUMN "appointment_local_day" SET NOT NULL;
+
+-- Trigger-maintained rather than application-maintained: a BEFORE INSERT/
+-- UPDATE trigger guarantees appointment_local_day always matches
+-- appointment_date no matter which code path writes the row (Prisma's
+-- appointment.service.ts today, but also any future path, a script, or a
+-- manual `psql` insert) — the same "defense-in-depth independent of
+-- application code" reasoning already applied to the exact-instant guard
+-- in 20260916150000_add_appointment_overlap_guards. A trigger body is not
+-- restricted to IMMUTABLE-only calls (only the indexed expression itself
+-- is), so it may freely use the named-zone AT TIME ZONE conversion that
+-- the index expression above could not.
+CREATE OR REPLACE FUNCTION set_appointment_local_day()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW."appointment_local_day" :=
+    ((NEW."appointment_date" AT TIME ZONE 'America/Indiana/Indianapolis')::date);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS appointments_set_local_day ON "appointments";
+
+CREATE TRIGGER appointments_set_local_day
+  BEFORE INSERT OR UPDATE OF "appointment_date" ON "appointments"
+  FOR EACH ROW
+  EXECUTE FUNCTION set_appointment_local_day();
+
+-- Rebuilt on the plain, trivially-immutable appointment_local_day column
+-- instead of the previous date_trunc(... AT TIME ZONE ...) expression,
+-- which Postgres rejects inside CREATE INDEX (see comment above).
 CREATE UNIQUE INDEX "appointments_customer_service_active_day_unique"
   ON "appointments" (
     "user_id",
     "service_id",
-    (date_trunc('day', "appointment_date" AT TIME ZONE 'America/Indiana/Indianapolis'))
+    "appointment_local_day"
   )
   WHERE "status" IN ('PENDING', 'CONFIRMED');
