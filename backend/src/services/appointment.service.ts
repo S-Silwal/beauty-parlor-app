@@ -12,6 +12,12 @@ import {
   notifyBookingRescheduled,
 } from '../notifications/notification.service';
 import { recordAuditLog, diffFields, AuditActor } from './adminAuditLog.service';
+import {
+  salonWallTimeToUtc,
+  salonLocalDateStr,
+  salonDayBounds,
+  toSalonDateTime,
+} from '../utils/timezone';
 
 type Tx = Prisma.TransactionClient;
 
@@ -183,12 +189,12 @@ export async function assertNoDuplicateServiceSameDay(
 ) {
   const { customerId, serviceId, date, excludeAppointmentId } = params;
 
-  // Local-calendar-day bounds, built from the Date's own y/m/d components
-  // (never from ISO/UTC math) — same convention getAvailableSlots() uses
-  // for the identical reason: a UTC-based day window silently checks the
-  // wrong day for any customer/server west of UTC in the evening.
-  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-  const dayEnd   = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+  // Salon-local-calendar-day bounds — never the server process's own
+  // timezone (UTC on Railway) and never raw UTC math. getAvailableSlots()
+  // below uses the same salonDayBounds() helper for the identical reason:
+  // a day window in the wrong zone silently checks the wrong calendar day
+  // for any appointment within a few hours of UTC midnight.
+  const { start: dayStart, end: dayEnd } = salonDayBounds(salonLocalDateStr(date));
 
   const existing = await tx.appointment.findFirst({
     where: {
@@ -202,8 +208,12 @@ export async function assertNoDuplicateServiceSameDay(
   });
 
   if (existing) {
+    // Name the actual conflicting time, in salon-local time — never the
+    // reading admin/customer's own browser timezone — so the client-side
+    // pre-check and this 409's message always agree.
+    const { date: existingDate, time: existingTime } = toSalonDateTime(existing.appointment_date);
     throw new AppError(
-      "You already have this service booked on this day. Please choose a different service, or a different day.",
+      `You already have this service booked on ${existingDate} at ${existingTime}. Please choose a different service, or a different day.`,
       409,
       "DUPLICATE_SERVICE_SAME_DAY",
       existing.id
@@ -333,18 +343,17 @@ export class AppointmentService {
     service_id?: string;
     staff_id?:   string;
   }) {
-    // Build the day window from the "YYYY-MM-DD" parts directly, in LOCAL
-    // time — never via `new Date(data.date)`. That string is parsed as UTC
-    // midnight, and re-zeroing its hours with setHours() then snaps it to
-    // local midnight of whatever calendar day that UTC instant falls on,
-    // which in a negative-UTC-offset timezone is the day BEFORE the one
-    // requested. That silently queried the wrong day's bookings for
-    // conflict-checking (correct only by coincidence in UTC-based zones).
+    // Build the day window in SALON-local time (America/Indiana/
+    // Indianapolis) — never via `new Date(data.date)` (parsed as UTC
+    // midnight) and never via the server process's own timezone (this
+    // container runs in UTC on Railway, which isn't Indianapolis either).
+    // Either of those silently queries the wrong day's bookings for
+    // conflict-checking whenever local and UTC calendar days diverge —
+    // i.e. every evening.
     const [y, m, d] = data.date.split('-').map(Number);
     if (!y || !m || !d) throw new AppError("Invalid date format", 400);
 
-    const startOfDay = new Date(y, m - 1, d, 0, 0, 0, 0);
-    const endOfDay   = new Date(y, m - 1, d, 23, 59, 59, 999);
+    const { start: startOfDay, end: endOfDay } = salonDayBounds(data.date);
 
     // ✅ Get the duration of the service being requested
     // This lets us check whether the NEW booking would overlap with existing ones
@@ -421,7 +430,7 @@ export class AppointmentService {
     const now = new Date();
 
     const availableSlots = slots.filter((slotTime) => {
-      const slotStart = new Date(`${data.date}T${slotTime}:00`);
+      const slotStart = salonWallTimeToUtc(data.date, slotTime);
 
       // Reject past slots
       if (slotStart <= now) return false;
@@ -433,8 +442,8 @@ export class AppointmentService {
 
       // Reject slots that fall inside a blocked (time-off/break) window
       const isBlocked = blockedWindows.some((block) => {
-        const blockStart = new Date(`${data.date}T${block.start}:00`);
-        const blockEnd   = new Date(`${data.date}T${block.end}:00`);
+        const blockStart = salonWallTimeToUtc(data.date, block.start);
+        const blockEnd   = salonWallTimeToUtc(data.date, block.end);
         return slotStart < blockEnd && slotEnd > blockStart;
       });
       if (isBlocked) return false;

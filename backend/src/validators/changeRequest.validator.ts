@@ -8,16 +8,18 @@ import { z } from "zod";
  */
 export const requestEditSchema = z
   .object({
-    // Deliberately NOT z.string().datetime() (which requires a UTC "Z"
-    // suffix) — the booking form sends a bare local "YYYY-MM-DDTHH:mm:ss"
-    // string, same as createAppointmentSchema.appointment_date, and since
-    // the browser and this backend run on the same machine/timezone that's
-    // parsed consistently by both sides.
+    // .datetime() requires an unambiguous UTC "Z" suffix — a bare local-
+    // looking string like "2026-09-27T11:00:00" is REJECTED here rather
+    // than silently parsed as the server process's own timezone (UTC on
+    // Railway — not the salon's America/Indiana/Indianapolis, and not
+    // necessarily the customer's browser either). This mirrors
+    // createAppointmentSchema.appointment_date; the client converts the
+    // salon-local date+slot the customer picked into this real UTC instant
+    // before sending it — see frontend/src/lib/timezone.ts's
+    // salonWallTimeToUtc().
     requested_date: z
       .string()
-      .refine((date) => !isNaN(new Date(date).getTime()), {
-        message: "Requested date must be a valid date and time",
-      })
+      .datetime({ message: "Requested date must be a valid ISO-8601 UTC date-time" })
       .refine((date) => new Date(date) > new Date(), {
         message: "Requested date must be in the future",
       })

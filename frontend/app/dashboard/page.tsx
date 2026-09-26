@@ -6,6 +6,13 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { initSocket } from '@/lib/socket';
 import { api } from '@/lib/api';
+import {
+  salonWallTimeToUtc,
+  toSalonLocalParts,
+  salonTodayStr,
+  formatSalonDate,
+  formatSalonTime,
+} from '@/lib/timezone';
 import Link from 'next/link';
 
 type AppointmentStatus = 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'RESCHEDULED';
@@ -48,20 +55,17 @@ interface StaffOption {
   name: string;
 }
 
-// Local calendar date/time parts of an ISO string — never derive these via
-// toISOString() or a UTC-based parse, which silently shift the displayed
-// day/time in negative-UTC-offset zones (the exact bug already fixed
-// elsewhere in this app's date handling).
+// Salon-local (never this browser's own timezone) date+slot of a stored
+// appointment_date instant — feeds the edit-request form's date input and
+// slot dropdown, which must speak the same salon-local time the slot list
+// itself (getAvailableSlots) does.
 function localDateAndSlot(iso: string): { date: string; slot: string } {
-  const d = new Date(iso);
-  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const slot = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return { date, slot };
+  const { dateStr, timeStr } = toSalonLocalParts(iso);
+  return { date: dateStr, slot: timeStr };
 }
 
 function localTodayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return salonTodayStr();
 }
 
 function formatSlotTime(slot: string): string {
@@ -393,7 +397,7 @@ export default function CustomerDashboard() {
       // nothing for an admin to approve, and the backend requires at
       // least one field.
       const payload: { requested_date?: string; requested_staff_id?: string; requested_service_id?: string } = {};
-      if (dateChanged) payload.requested_date = `${editDate}T${editSlot}:00`;
+      if (dateChanged) payload.requested_date = salonWallTimeToUtc(editDate, editSlot).toISOString();
       if (staffChanged) payload.requested_staff_id = editStaffId;
       if (serviceChanged) payload.requested_service_id = editServiceId;
 
@@ -659,9 +663,9 @@ export default function CustomerDashboard() {
                 <p className="db-next-label">Next Appointment</p>
                 <h2 className="db-next-service">{nextAppt.service.name}</h2>
                 <p className="db-next-date">
-                  {apptDate.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' })}
+                  {formatSalonDate(apptDate, { weekday:'long', month:'long', day:'numeric', year:'numeric' })}
                   {' · '}
-                  {apptDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}
+                  {formatSalonTime(apptDate)}
                   {nextAppt.staff && ` · with ${nextAppt.staff.name}`}
                 </p>
               </div>
@@ -718,9 +722,9 @@ export default function CustomerDashboard() {
                     <div>
                       <h3 className="db-card-service">{booking.service.name}</h3>
                       <p className="db-card-meta">
-                        {apptDate.toLocaleDateString('en-US', { weekday:'short', month:'long', day:'numeric', year:'numeric' })}
+                        {formatSalonDate(apptDate, { weekday:'short', month:'long', day:'numeric', year:'numeric' })}
                         {' · '}
-                        {apptDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}
+                        {formatSalonTime(apptDate)}
                         {booking.staff && ` · ${booking.staff.name}`}
                       </p>
                       {booking.notes && (
@@ -817,9 +821,9 @@ export default function CustomerDashboard() {
                             <p style={{ fontSize: 12, color: '#92400E', marginLeft: 17 }}>
                               Requested:{' '}
                               {pendingRequest.requested_date
-                                ? new Date(pendingRequest.requested_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+                                ? formatSalonDate(pendingRequest.requested_date, { weekday: undefined, month: 'short', day: 'numeric', year: 'numeric' }) +
                                   ' · ' +
-                                  new Date(pendingRequest.requested_date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                                  formatSalonTime(pendingRequest.requested_date)
                                 : 'same time'}
                               {pendingRequest.requestedStaff && ` · ${pendingRequest.requestedStaff.name}`}
                               {pendingRequest.requestedService && ` · ${pendingRequest.requestedService.name}`}

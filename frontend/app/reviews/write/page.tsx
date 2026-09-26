@@ -17,6 +17,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { formatSalonDate } from "@/lib/timezone";
 
 interface Booking {
   id: string;
@@ -298,7 +299,7 @@ function WriteReviewContent() {
                 )}
                 <div className="wr-detail-row">
                   <span className="wr-detail-label">Date</span>
-                  <span className="wr-detail-value">{new Date(booking.appointment_date).toLocaleDateString()}</span>
+                  <span className="wr-detail-value">{formatSalonDate(booking.appointment_date, { weekday: undefined, year: "numeric", month: "numeric", day: "numeric" })}</span>
                 </div>
               </div>
             )}

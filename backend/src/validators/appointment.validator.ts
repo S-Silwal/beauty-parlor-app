@@ -1,5 +1,6 @@
 // src/validators/appointment.validator.ts
 import { z } from "zod";
+import { salonTodayStr } from "../utils/timezone";
 
 /**
  * Create Appointment Schema
@@ -7,14 +8,20 @@ import { z } from "zod";
 export const createAppointmentSchema = z.object({
   service_id: z.string().uuid("Invalid service ID format"),
   staff_id: z.string().uuid("Invalid staff ID format").optional(),
-appointment_date: z
-  .string()
-  .refine((date) => !isNaN(new Date(date).getTime()), {
-    message: "Appointment date must be a valid date and time",
-  })
-  .refine((date) => new Date(date) > new Date(), {
-    message: "Appointment date must be in the future",
-  }),
+  // .datetime() requires an unambiguous UTC "Z" suffix (or, with
+  // { offset: true }, an explicit +HH:mm) — a bare local-looking string
+  // like "2026-09-27T11:00:00" is REJECTED here rather than silently
+  // parsed as the server process's own timezone (UTC on Railway, not the
+  // salon's America/Indiana/Indianapolis, and not the customer's browser
+  // either). The client is responsible for converting the salon-local
+  // date+slot the customer picked into this real UTC instant before
+  // sending it — see frontend/src/lib/timezone.ts's salonWallTimeToUtc().
+  appointment_date: z
+    .string()
+    .datetime({ message: "Appointment date must be a valid ISO-8601 UTC date-time" })
+    .refine((date) => new Date(date) > new Date(), {
+      message: "Appointment date must be in the future",
+    }),
   notes: z
     .string()
     .max(500, "Notes cannot exceed 500 characters")
@@ -63,17 +70,15 @@ export const getAvailableSlotsSchema = z.object({
     .string()
     .date("Date must be in YYYY-MM-DD format")
     .refine((dateStr) => {
-      // Plain string comparison against today's LOCAL calendar date —
-      // never round-trip through `new Date(dateStr)`. A bare "YYYY-MM-DD"
-      // is parsed as UTC midnight, which in any negative-UTC-offset
-      // timezone (all of the Americas) sits a few hours *before* local
-      // midnight — so comparing it against a locally-zeroed `new Date()`
-      // made today's own date register as "in the past" and blocked every
-      // same-day booking. ISO date strings sort correctly as strings, so
-      // no Date object (and no timezone) needs to enter the comparison.
-      const now = new Date();
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      return dateStr >= todayStr;
+      // Compare against "today" as a plain "YYYY-MM-DD" string, computed
+      // for the SALON's own calendar (America/Indiana/Indianapolis) — never
+      // `new Date(dateStr)` (parsed as UTC midnight) and never
+      // `now.getFullYear()/getDate()` (the server process's own timezone,
+      // UTC on Railway). Either of those can register the salon's actual
+      // "today" as "in the past" for a few hours around midnight, or accept
+      // a date that's already over at the salon. ISO date strings sort
+      // correctly as strings once both sides are in the same zone.
+      return dateStr >= salonTodayStr();
     }, {
       message: "Date cannot be in the past",
     }),

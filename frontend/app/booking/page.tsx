@@ -5,25 +5,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useRouter, useSearchParams } from 'next/navigation';
-
-// `new Date().toISOString()` reports the UTC calendar date, which runs
-// ahead of local date in the evening in any negative-UTC-offset timezone
-// (e.g. after ~8pm Eastern) — using it as the date input's `min` would
-// block picking "today" once UTC has already rolled over to tomorrow.
-// Build the min from local calendar components instead.
-function localTodayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-// Same local-calendar-day comparison the backend's
-// assertNoDuplicateServiceSameDay() uses — never compare via raw UTC
-// substring/day math, for the same reason localTodayStr() above doesn't.
-function isSameLocalDay(isoDateTime: string, yyyyMmDd: string): boolean {
-  const d = new Date(isoDateTime);
-  const dayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return dayStr === yyyyMmDd;
-}
+import { salonWallTimeToUtc, salonLocalDateStr, salonTodayStr, formatSalonTime } from '@/lib/timezone';
 
 interface BookableService {
   id: string;
@@ -90,6 +72,15 @@ function BookingForm() {
   const [successMsg, setSuccessMsg]           = useState('');
   const [lastBooking, setLastBooking]         = useState<ConfirmedBooking | null>(null);
   const [myBookings, setMyBookings]           = useState<MyBooking[]>([]);
+  // Set right after a successful booking to that appointment's id, and
+  // cleared the moment the customer changes service or date. Excludes
+  // that one row from duplicateBooking below, so the booking we *just*
+  // created isn't shown as a conflict with itself on the success screen
+  // (myBookings is refreshed post-booking and now contains it) — while a
+  // genuine second same-service-same-day attempt, after the customer
+  // re-picks the same service/date, still correctly matches it, because
+  // the service/date onChange handlers below clear this first.
+  const [justBookedId, setJustBookedId] = useState<string | null>(null);
 
   // Wait for AuthContext's async auth check before deciding to redirect —
   // otherwise a genuinely logged-in user gets bounced to /login on refresh
@@ -183,18 +174,25 @@ function BookingForm() {
     setSuccessMsg('');
 
     try {
-      const fullDateTime = `${selectedDate}T${selectedSlot}:00`;
+      // selectedSlot is a salon-local wall-clock time (e.g. "11:00" AM at
+      // the salon) — convert it to the real UTC instant it represents
+      // before sending, rather than a bare local-looking string that the
+      // API would otherwise have to guess a timezone for.
+      const appointmentInstant = salonWallTimeToUtc(selectedDate, selectedSlot);
 
       const appointmentData = {
         service_id:       selectedService,
         staff_id:         selectedStaff || undefined,
-        appointment_date: fullDateTime,
+        appointment_date: appointmentInstant.toISOString(),
         notes:            notes?.trim() || undefined,
       };
 
       const res = await api.bookAppointment(appointmentData, token);
 
       if (res.success) {
+        // Exclude this appointment from the same-service-same-day
+        // pre-check below — see justBookedId's declaration.
+        setJustBookedId(res.appointment?.id ?? null);
         // Snapshot the confirmed details before anything below (notably
         // loadAvailableSlots, which resets selectedSlot as part of its
         // normal reload behavior) can change the live draft state out from
@@ -280,9 +278,10 @@ function BookingForm() {
   // which staff member either booking uses.
   const duplicateBooking = selectedService && selectedDate
     ? myBookings.find(b =>
+        b.id !== justBookedId &&
         b.service_id === selectedService &&
         (b.status === 'PENDING' || b.status === 'CONFIRMED') &&
-        isSameLocalDay(b.appointment_date, selectedDate)
+        salonLocalDateStr(b.appointment_date) === selectedDate
       )
     : undefined;
 
@@ -313,6 +312,7 @@ function BookingForm() {
             onClick={() => {
               setSuccessMsg('');
               setLastBooking(null);
+              setJustBookedId(null);
               setSelectedService('');
               setSelectedDate('');
               setSelectedSlot('');
@@ -336,7 +336,7 @@ function BookingForm() {
             <label className="block text-sm font-medium mb-2">Select Service</label>
             <select
               value={selectedService}
-              onChange={e => setSelectedService(e.target.value)}
+              onChange={e => { setSelectedService(e.target.value); setJustBookedId(null); }}
               className="w-full p-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500"
             >
               <option value="">Choose a service</option>
@@ -369,8 +369,8 @@ function BookingForm() {
             <input
               type="date"
               value={selectedDate}
-              onChange={e => setSelectedDate(e.target.value)}
-              min={localTodayStr()}
+              onChange={e => { setSelectedDate(e.target.value); setJustBookedId(null); }}
+              min={salonTodayStr()}
               className="w-full p-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500"
             />
           </div>
@@ -381,9 +381,7 @@ function BookingForm() {
             {duplicateBooking ? (
               <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3">
                 You already have {services.find(s => s.id === selectedService)?.name} booked on{' '}
-                {formatDate(selectedDate)} at {formatTime(
-                  new Date(duplicateBooking.appointment_date).toTimeString().slice(0, 5)
-                )}. Choose a different service, or a different day.
+                {formatDate(selectedDate)} at {formatSalonTime(duplicateBooking.appointment_date)}. Choose a different service, or a different day.
               </p>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">

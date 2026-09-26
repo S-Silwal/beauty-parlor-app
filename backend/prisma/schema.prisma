@@ -164,7 +164,12 @@ model Appointment {
   staff_id         String?
   notificationLogs NotificationLog[]
 
-  appointment_date DateTime
+  // Stored as a real timestamptz (an unambiguous UTC instant) — never a
+  // naive @db.Timestamp. See backend/src/utils/timezone.ts: every wall-
+  // clock read/write of this column goes through SALON_TZ
+  // (America/Indiana/Indianapolis) helpers there, never the server
+  // process's own OS timezone (UTC on Railway) or a reading browser's.
+  appointment_date DateTime @db.Timestamptz(3)
   duration         Int
   total_price      Decimal
 

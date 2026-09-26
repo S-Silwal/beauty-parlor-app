@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { formatSalonDate, formatSalonTime } from "@/lib/timezone";
 
 interface Booking {
   id: string;
@@ -111,7 +112,7 @@ export default function MyBookings() {
                     <div>
                       <h3 className="text-2xl font-semibold">{booking.service?.name || "Service"}</h3>
                       <p className="text-gray-600 mt-2">
-                        {new Date(booking.appointment_date).toLocaleDateString()} at {new Date(booking.appointment_date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        {formatSalonDate(booking.appointment_date, { weekday: undefined, year: 'numeric', month: 'numeric', day: 'numeric' })} at {formatSalonTime(booking.appointment_date)}
                       </p>
                     </div>
 

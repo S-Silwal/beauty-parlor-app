@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { initSocket } from '@/lib/socket';
+import { formatSalonDate, formatSalonTime } from '@/lib/timezone';
 
 type AppointmentStatus = 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'RESCHEDULED';
 
@@ -1337,7 +1338,7 @@ export default function AdminPanel() {
                     <div key={b.id} style={{ padding:'22px 24px', borderBottom:'1px solid #F5F0EB', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
                       <div>
                         <p style={{ fontSize:16, fontWeight:600, color:'#2C2825', margin:'0 0 5px' }}>{b.user.name}</p>
-                        <p style={{ fontSize:13, fontWeight:400, color:'#9E968E' }}>{b.service.name} · {date.toLocaleDateString('en-US',{month:'short',day:'numeric'})} at {date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</p>
+                        <p style={{ fontSize:13, fontWeight:400, color:'#9E968E' }}>{b.service.name} · {formatSalonDate(date,{weekday:undefined,month:'short',day:'numeric'})} at {formatSalonTime(date)}</p>
                       </div>
                       <span className="ap-status" style={{ background:cfg.bg, color:cfg.text }}>
                         <span style={{ width:5, height:5, borderRadius:'50%', background:cfg.dot, display:'inline-block' }}/>
@@ -1393,8 +1394,8 @@ export default function AdminPanel() {
                         </div>
                         {/* Date & Time */}
                         <div>
-                          <p className="ap-row-date">{date.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</p>
-                          <p className="ap-row-time">{date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</p>
+                          <p className="ap-row-date">{formatSalonDate(date,{weekday:undefined,month:'short',day:'numeric',year:'numeric'})}</p>
+                          <p className="ap-row-time">{formatSalonTime(date)}</p>
                         </div>
                         {/* Staff */}
                         <p style={{ fontSize:13, color:'#9E968E' }}>{booking.staff?.name || 'Any'}</p>
@@ -1489,8 +1490,8 @@ export default function AdminPanel() {
                             </p>
                             <p style={{ fontSize:13, color:'#2C2825', fontWeight:500 }}>{appt.service.name}</p>
                             <p style={{ fontSize:12, color:'#6B635A', marginTop:2 }}>
-                              {origDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} at{' '}
-                              {origDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}
+                              {formatSalonDate(origDate, { weekday:undefined, month:'short', day:'numeric', year:'numeric' })} at{' '}
+                              {formatSalonTime(origDate)}
                             </p>
                             <p style={{ fontSize:12, color:'#9E968E', marginTop:2 }}>{appt.staff?.name || 'No preference'}</p>
                           </div>
@@ -1508,8 +1509,8 @@ export default function AdminPanel() {
                                 </p>
                                 <p style={{ fontSize:12, color:'#065F46', marginTop:2, fontWeight:600 }}>
                                   {newDate
-                                    ? `${newDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} at ${newDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}`
-                                    : `${origDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} at ${origDate.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })} (unchanged)`}
+                                    ? `${formatSalonDate(newDate, { weekday:undefined, month:'short', day:'numeric', year:'numeric' })} at ${formatSalonTime(newDate)}`
+                                    : `${formatSalonDate(origDate, { weekday:undefined, month:'short', day:'numeric', year:'numeric' })} at ${formatSalonTime(origDate)} (unchanged)`}
                                 </p>
                                 <p style={{ fontSize:12, color:'#6B635A', marginTop:2 }}>
                                   {req.requestedStaff?.name || appt.staff?.name || 'No preference'}
