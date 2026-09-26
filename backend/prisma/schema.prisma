@@ -175,11 +175,20 @@ model Appointment {
   // appointment_date falls on, as a plain DATE. Maintained entirely by a
   // Postgres BEFORE INSERT/UPDATE trigger (appointments_set_local_day, see
   // 20260926040000_appointment_date_timestamptz) — application code never
-  // sets this field. It exists only so the same-service-same-day partial
-  // unique index can be built on a plain (trivially IMMUTABLE) column
-  // instead of a date_trunc(... AT TIME ZONE ...) expression, which
-  // Postgres refuses inside CREATE INDEX for a named time zone.
-  appointment_local_day DateTime @db.Date
+  // sets this field, and never should. It exists only so the
+  // same-service-same-day partial unique index can be built on a plain
+  // (trivially IMMUTABLE) column instead of a date_trunc(... AT TIME
+  // ZONE ...) expression, which Postgres refuses inside CREATE INDEX for
+  // a named time zone.
+  //
+  // @default(dbgenerated()) has no actual SQL behind it (there is no
+  // column-level DEFAULT — the trigger fires on every INSERT regardless).
+  // It exists purely to tell Prisma Client this column is populated
+  // outside the values an application `create()` call supplies, so
+  // generated types don't require callers to pass it. Omit it from every
+  // create()/update() call; the trigger overwrites whatever value ends up
+  // there anyway.
+  appointment_local_day DateTime @db.Date @default(dbgenerated())
 
   duration         Int
   total_price      Decimal
