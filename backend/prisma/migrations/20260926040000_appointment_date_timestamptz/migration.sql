@@ -29,15 +29,20 @@
 -- that fix. It does not, and cannot, correct the *meaning* of any
 -- already-mis-stored historical row — only new bookings created after
 -- this deploys are guaranteed correct.
+-- Drop the old same-service-same-day partial unique index (see
+-- 20260925140000_add_duplicate_service_same_day_guard) BEFORE changing the
+-- column type. That index is on date_trunc('day', "appointment_date"); if
+-- it still exists when the column becomes TIMESTAMPTZ, Postgres rebuilds it
+-- against the new type, where date_trunc(text, timestamptz) is only STABLE,
+-- and the ALTER fails with 42P17 "functions in index expression must be
+-- marked IMMUTABLE". It's rebuilt below on a dedicated column rather than
+-- recreated as an expression index — see the comment above
+-- appointment_local_day for why.
+DROP INDEX IF EXISTS "appointments_customer_service_active_day_unique";
+
 ALTER TABLE "appointments"
   ALTER COLUMN "appointment_date" TYPE TIMESTAMPTZ(3)
   USING "appointment_date" AT TIME ZONE 'UTC';
-
--- Drop the old same-service-same-day partial unique index (see
--- 20260925140000_add_duplicate_service_same_day_guard). It's rebuilt below
--- on a dedicated column rather than recreated as an expression index — see
--- the comment above appointment_local_day for why.
-DROP INDEX IF EXISTS "appointments_customer_service_active_day_unique";
 
 -- appointment_local_day holds the salon-local (America/Indiana/
 -- Indianapolis) calendar date that appointment_date falls on, as a plain
