@@ -209,6 +209,19 @@ async function seed() {
     process.exit(1);
   }
 
+  // Never create the publicly-known default logins in production.
+  if (
+    process.env.NODE_ENV === "production" &&
+    (!process.env.SEED_ADMIN_PASSWORD || !process.env.SEED_CUSTOMER_PASSWORD)
+  ) {
+    console.error(
+      "❌ SEED_ADMIN_PASSWORD and SEED_CUSTOMER_PASSWORD must be set when seeding production."
+    );
+    process.exit(1);
+  }
+
+
+
   try {
     console.log("🌱 Starting database seeding...");
 

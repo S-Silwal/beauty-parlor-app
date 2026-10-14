@@ -74,3 +74,6 @@ docker-compose.override.yml
 
 # Local scratch (contains real secrets, never commit)
 Claude outputs/
+
+# Local curl cookie jars (may contain session tokens)
+cookies.txt
