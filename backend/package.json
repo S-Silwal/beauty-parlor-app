@@ -46,7 +46,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@jest/globals": "^30.4.1",
+    "@jest/globals": "^30.5.2",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
@@ -59,15 +59,18 @@
     "@types/node": "^20.14.0",
     "@types/socket.io": "^3.0.1",
     "@types/supertest": "^7.2.0",
-    "@typescript-eslint/eslint-plugin": "^7.18.0",
-    "@typescript-eslint/parser": "^7.18.0",
+    "@typescript-eslint/eslint-plugin": "^8.71.2",
+    "@typescript-eslint/parser": "^8.71.2",
     "eslint": "^8.57.0",
-    "jest": "^30.4.2",
-    "nodemon": "^3.1.4",
+    "jest": "^30.5.2",
+    "nodemon": "^3.1.14",
     "prisma": "^5.15.0",
     "supertest": "^7.2.2",
-    "ts-jest": "^29.4.12",
+    "ts-jest": "^29.4.14",
     "ts-node": "^10.9.2",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
   }
 }
