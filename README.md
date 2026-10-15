@@ -27,8 +27,8 @@ It's built as a production-style portfolio project: deployed with CI/CD, tested,
 
 > **Try it:** sign in with the demo account below, or create your own.
 >
-> | Role | Email | Password |
-> |---|---|---|
+> | Role            | Email             | Password             |
+> | --------------- | ----------------- | -------------------- |
 > | Customer (demo) | `DEMO_EMAIL_HERE` | `DEMO_PASSWORD_HERE` |
 
 ---
@@ -36,6 +36,7 @@ It's built as a production-style portfolio project: deployed with CI/CD, tested,
 ## ✨ Features
 
 ### For customers
+
 - 📅 **Online booking** with real-time availability and **conflict detection** (interval-overlap logic prevents double-booking)
 - 🔄 **Cancel & reschedule** with an enforced notice cutoff
 - 🔔 **Appointment reminders** by email and SMS, scheduled in the background
@@ -43,6 +44,7 @@ It's built as a production-style portfolio project: deployed with CI/CD, tested,
 - 🖼 **Gallery** filterable by category (Brows & Lashes, Waxing, Facials, Before & After)
 
 ### For admins
+
 - 📊 **Admin dashboard** with live booking updates via **Socket.io**
 - 💇 **Staff management** — specializations, bios, availability
 - 🧾 **Service catalog** management — categories, pricing, duration, "popular" flags
@@ -51,6 +53,7 @@ It's built as a production-style portfolio project: deployed with CI/CD, tested,
 - 🚫 **No-show tracking** and booking status management
 
 ### Authentication
+
 - ✉️ Email verification on sign-up
 - 🔑 Forgot / reset password flow
 - 🛡 Multi-factor authentication (MFA)
@@ -60,19 +63,19 @@ It's built as a production-style portfolio project: deployed with CI/CD, tested,
 
 ## 🛠 Tech Stack
 
-| Layer | Technologies |
-|---|---|
-| **Frontend** | Next.js 15 (App Router), TypeScript, Tailwind CSS |
-| **Backend** | Node.js, Express, TypeScript |
-| **Database** | PostgreSQL, Prisma ORM |
-| **Real-time** | Socket.io |
-| **Validation** | Zod |
-| **Email / SMS** | Resend, Twilio |
-| **Scheduled jobs** | Upstash QStash |
-| **Media** | Cloudinary |
-| **Testing** | Jest, Supertest |
-| **CI/CD** | GitHub Actions (`develop` → `main` PR workflow) |
-| **Hosting** | Railway (frontend, backend, and PostgreSQL) |
+| Layer              | Technologies                                      |
+| ------------------ | ------------------------------------------------- |
+| **Frontend**       | Next.js 15 (App Router), TypeScript, Tailwind CSS |
+| **Backend**        | Node.js, Express, TypeScript                      |
+| **Database**       | PostgreSQL, Prisma ORM                            |
+| **Real-time**      | Socket.io                                         |
+| **Validation**     | Zod                                               |
+| **Email / SMS**    | Resend, Twilio                                    |
+| **Scheduled jobs** | Upstash QStash                                    |
+| **Media**          | Cloudinary                                        |
+| **Testing**        | Jest, Supertest                                   |
+| **CI/CD**          | GitHub Actions (`develop` → `main` PR workflow)   |
+| **Hosting**        | Railway (frontend, backend, and PostgreSQL)       |
 
 ---
 
@@ -117,12 +120,12 @@ Security was treated as a feature, not an afterthought:
 
 ## 📸 Screenshots
 
-| Homepage | Booking flow |
-|---|---|
+| Homepage                                   | Booking flow                             |
+| ------------------------------------------ | ---------------------------------------- |
 | ![Homepage](docs/screenshots/homepage.png) | ![Booking](docs/screenshots/booking.png) |
 
-| Customer dashboard | Admin dashboard |
-|---|---|
+| Customer dashboard                                             | Admin dashboard                                          |
+| -------------------------------------------------------------- | -------------------------------------------------------- |
 | ![Customer dashboard](docs/screenshots/customer-dashboard.png) | ![Admin dashboard](docs/screenshots/admin-dashboard.png) |
 
 ---
@@ -130,17 +133,20 @@ Security was treated as a feature, not an afterthought:
 ## 🚀 Getting Started
 
 ### Prerequisites
+
 - Node.js 20+
 - PostgreSQL 15+
 - Accounts for Resend, Cloudinary, Twilio, and Upstash QStash (for full functionality)
 
 ### 1. Clone the repository
+
 ```bash
 git clone https://github.com/S-Silwal/beauty-parlor-app.git
 cd beauty-parlor-app
 ```
 
 ### 2. Set up the backend
+
 ```bash
 cd backend
 npm install
@@ -151,6 +157,7 @@ npm run dev                 # http://localhost:5000
 ```
 
 ### 3. Set up the frontend
+
 ```bash
 cd ../frontend
 npm install
@@ -158,6 +165,7 @@ npm run dev                 # http://localhost:3000
 ```
 
 ### Running tests
+
 ```bash
 cd backend
 npm test
@@ -207,5 +215,3 @@ beauty-parlor-app/
 <div align="center">
 <sub>Built with care — and a lot of debugging ✨</sub>
 </div>
-
-
