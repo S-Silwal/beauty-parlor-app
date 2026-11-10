@@ -190,6 +190,12 @@ model Appointment {
   // there anyway.
   appointment_local_day DateTime @db.Date @default(dbgenerated())
 
+  // End of the booking (appointment_date + duration), maintained by a
+  // Postgres trigger (appointments_set_end) — never set this in app code.
+  // Exists so the staff no-overlap exclusion constraint can use a plain
+  // tstzrange(start, end) — see the add_staff_overlap_exclusion migration.
+  appointment_end DateTime @db.Timestamptz(3) @default(dbgenerated())
+
   duration         Int
   total_price      Decimal
 

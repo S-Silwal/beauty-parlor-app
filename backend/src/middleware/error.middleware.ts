@@ -48,7 +48,31 @@ export const errorHandler = (
       });
     }
   }
-
+  // ====================== DB-LEVEL BOOKING GUARDS ======================
+  // The appointments_staff_no_overlap exclusion constraint (see the
+  // add_staff_overlap_exclusion migration) rejects two active bookings for
+  // the same staff member with overlapping times. assertSlotAvailable()
+  // catches this first in normal use; this only fires when two requests
+  // race past that check at the same moment. Prisma has no error code for
+  // exclusion violations (Postgres 23P01), so it surfaces as an
+  // UnknownRequestError — match on the constraint name instead.
+  if (
+    err.name === "PrismaClientUnknownRequestError" &&
+    err.message.includes("appointments_staff_no_overlap")
+  ) {
+    logger.warn("staff overlap blocked by DB constraint", {
+      requestId: req.requestId,
+      path: req.originalUrl,
+    });
+    return res.status(409).json({
+      success: false,
+      status: "fail",
+      message:
+        "Sorry — this time slot was just booked by someone else. Please choose another time.",
+      error: "SLOT_UNAVAILABLE",
+      requestId: req.requestId,
+    });
+  }
   // ====================== JWT ERRORS ======================
   if (err.name === "JsonWebTokenError") {
     return res.status(401).json({

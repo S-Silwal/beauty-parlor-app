@@ -39,7 +39,7 @@ import {
 dotenv.config();
 
 const app = express();
-
+app.set("trust proxy", 1); // Railway sits one proxy hop in front of us
 // ====================== GLOBAL MIDDLEWARE ======================
 // This is a pure JSON API — no HTML views, no inline scripts/styles to
 // allow, no legitimate reason to ever be framed by another page. helmet()'s

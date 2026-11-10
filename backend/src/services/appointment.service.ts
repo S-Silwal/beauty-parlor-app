@@ -17,7 +17,7 @@ import {
   salonLocalDateStr,
   salonDayBounds,
   toSalonDateTime,
-} from '../utils/timezone';
+  SALON_TZ,} from '../utils/timezone';
 
 type Tx = Prisma.TransactionClient;
 
@@ -100,7 +100,7 @@ export async function assertSlotAvailable(
   const staffConflicts = await tx.appointment.findMany({
     where: {
       ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
-      status: { in: ["PENDING", "CONFIRMED"] },
+     status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
       staff_id: staffId ?? null,
       appointment_date: { lt: newEnd },
     },
@@ -112,9 +112,9 @@ export async function assertSlotAvailable(
     const existingEnd = endOfBooking(existingStart, booking.duration);
 
     if (rangesOverlap(newStart, newEnd, existingStart, existingEnd)) {
-      const availableFrom = existingEnd.toLocaleTimeString('en-US', {
-        hour: 'numeric', minute: '2-digit',
-      });
+    const availableFrom = existingEnd.toLocaleTimeString('en-US', {
+  hour: 'numeric', minute: '2-digit', timeZone: SALON_TZ,
+});
       throw new AppError(
         staffId
           ? `This staff member is booked until ${availableFrom}. Please select a time at or after ${availableFrom}.`

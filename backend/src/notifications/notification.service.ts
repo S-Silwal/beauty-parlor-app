@@ -3,24 +3,10 @@ import { prisma } from '../config/database';
 import { sendEmail } from './email.service';
 import { sendSms } from './sms.service';
 import { scheduleReminder } from './scheduler.service';
-
+import { formatSalonDate as formatDate, formatSalonTime as formatTime } from '../utils/timezone';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
-/**
- * Format date for display: "Friday, May 15, 2026"
- */
-function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  });
-}
 
-/**
- * Format time for display: "9:30 AM"
- */
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-}
 
 /**
  * Send "booking placed" notification — call this right after a customer
