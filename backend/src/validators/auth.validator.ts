@@ -69,7 +69,7 @@ export const loginSchema = z.object({
  * Forgot Password Schema
  */
 export const forgotPasswordSchema = z.object({
-  email: z.string().email("Invalid email address").trim().toLowerCase(),
+ email: z.string().trim().toLowerCase().pipe(z.email("Invalid email address")),
 });
 
 /**
