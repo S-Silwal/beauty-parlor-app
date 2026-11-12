@@ -61,7 +61,7 @@ const baseTemplate = (content: string, previewText: string) => `
         <p class="footer-text">
           ${BRAND.name} · ${BRAND.address}<br/>
           <a href="tel:${BRAND.phone}" class="footer-link">${BRAND.phone}</a>${BRAND.supportEmail ? ` ·
-          <a href=\"mailto:${BRAND.supportEmail}\" class=\"footer-link\">${BRAND.supportEmail}</a>` : ''}
+          <a href="mailto:${BRAND.supportEmail}" class="footer-link">${BRAND.supportEmail}</a>` : ''}
         </p>
         <p class="footer-text" style="margin-top:12px;">
           <a href="{{unsubscribeUrl}}" class="footer-link">Unsubscribe</a>
