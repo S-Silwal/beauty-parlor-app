@@ -55,22 +55,6 @@ export class GalleryController {
     }
   }
 
-  // ── Legacy direct upload (admin only) ────────────────────────────────────
-  static async uploadImage(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ success: false, message: "No file uploaded" });
-      }
-
-      const { category } = req.body;
-      const image = await GalleryService.uploadImage(req.file, category);
-
-      res.status(201).json({ success: true, message: "Image uploaded successfully", image });
-    } catch (error) {
-      next(error);
-    }
-  }
-
   // ── Soft delete image (admin only) ───────────────────────────────────────
   static async deleteImage(req: AuthRequest, res: Response, next: NextFunction) {
     try {

@@ -37,7 +37,7 @@ const IMAGE_MAP: { keywords: string[]; url: string }[] = [
   { keywords: ['wax'],                                  url: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=600&q=80' },
   { keywords: ['classic facial'],                       url: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=600&q=80' },
   { keywords: ['anti-age', 'anti age', 'ageing'],       url: 'https://images.unsplash.com/photo-1552693673-1bf958298935?w=600&q=80' },
-  { keywords: ['glow', 'hydrat'],                       url: 'https://images.unsplash.com/photo-1599407383981-35a45f27e1e9?w=600&q=80' },
+  { keywords: ['glow', 'hydrat'],                       url: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=600&q=80' },
   { keywords: ['facial', 'skin'],                       url: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=600&q=80' },
 ];
 
@@ -47,6 +47,24 @@ const CATEGORY_FALLBACK: Record<string, string> = {
   FACIAL_SKINCARE: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=600&q=80',
 };
 const FALLBACK = 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&q=80';
+
+// Swapping e.target.src in onError doesn't work with next/image: the <img>
+// also carries a srcset pointing at the broken URL, and browsers prefer
+// srcset, so the card stayed blank. Changing the `src` prop instead makes
+// Next rebuild both src and srcset for the fallback.
+function ServiceImage({ src, alt }: { src: string; alt: string }) {
+  const [current, setCurrent] = useState(src);
+  return (
+    <Image
+      src={current}
+      alt={alt}
+      fill
+      sizes="(max-width: 900px) 100vw, (max-width: 1200px) 50vw, 33vw"
+      className="sv-img"
+      onError={() => { if (current !== FALLBACK) setCurrent(FALLBACK); }}
+    />
+  );
+}
 
 function getImage(name: string, category: string): string {
   const n = name.toLowerCase();
@@ -375,13 +393,9 @@ export default function ServicesPage() {
               {isSignature(service) && <span className="sv-badge">Signature</span>}
               <div className="sv-img-wrap">
                 <div className="sv-img-overlay" />
-                <Image
+                <ServiceImage
                   src={service.image || getImage(service.name, service.category)}
                   alt={service.name}
-                  fill
-                  sizes="(max-width: 900px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                  className="sv-img"
-                  onError={e => { (e.target as HTMLImageElement).src = FALLBACK; }}
                 />
               </div>
               <div className="sv-card-body">
