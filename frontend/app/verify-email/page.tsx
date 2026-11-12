@@ -5,7 +5,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-type Status = 'loading' | 'success' | 'error' | 'expired';
+type Status = 'loading' | 'success' | 'error' | 'expired' | 'already';
 
 export default function VerifyEmailPage() {
   return (
@@ -41,6 +41,10 @@ function VerifyEmailContent() {
           setMessage(data.message);
           // Auto redirect to login after 3 seconds
           setTimeout(() => router.push('/login'), 3000);
+        } else if (res.status === 409) {
+          // Link already used, or account already verified: not a real failure
+          setStatus('already');
+          setMessage('Your email is already verified. You can log in.');
         } else {
           const isExpired = data.message?.toLowerCase().includes('expired');
           setStatus(isExpired ? 'expired' : 'error');
@@ -104,6 +108,19 @@ function VerifyEmailContent() {
               </p>
               <Link href="/login" className="ve-btn">Go to Login</Link>
               <p className="ve-redirect">Redirecting automatically in 3 seconds…</p>
+            </>
+          )}
+
+          {status === 'already' && (
+            <>
+              <div className="ve-icon ve-icon-success">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#065F46" strokeWidth="2.5">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+              <h1 className="ve-title">Already <em>verified</em></h1>
+              <p className="ve-text">{message}</p>
+              <Link href="/login" className="ve-btn">Go to Login</Link>
             </>
           )}
 

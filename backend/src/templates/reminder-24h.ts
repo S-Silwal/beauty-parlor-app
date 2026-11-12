@@ -1,12 +1,4 @@
-const BRAND = {
-  name: 'Crown & Glow',
-  color: '#B89A6A',
-  dark: '#2C2825',
-  cream: '#F7F3EE',
-  address: '456 Glow Avenue, Suite 200, Indianapolis, IN 46204',
-  phone: '(317) 555-0187',
-  website: 'https://crownandglow.com',
-};
+import { BRAND, escapeData } from './brand';
 
 // ── Base wrapper ─────────────────────────────────────────────────────────────
 const baseTemplate = (content: string, previewText: string) => `
@@ -67,12 +59,11 @@ const baseTemplate = (content: string, previewText: string) => `
       <div class="footer">
         <p class="footer-text">
           ${BRAND.name} · ${BRAND.address}<br/>
-          <a href="tel:${BRAND.phone}" class="footer-link">${BRAND.phone}</a> ·
-          <a href="mailto:hello@crownandglow.com" class="footer-link">hello@crownandglow.com</a>
+          <a href="tel:${BRAND.phone}" class="footer-link">${BRAND.phone}</a>${BRAND.supportEmail ? ` ·
+          <a href="mailto:${BRAND.supportEmail}" class="footer-link">${BRAND.supportEmail}</a>` : ''}
         </p>
         <p class="footer-text" style="margin-top:12px;">
-          <a href="{{unsubscribeUrl}}" class="footer-link">Unsubscribe</a> ·
-          <a href="${BRAND.website}/privacy" class="footer-link">Privacy Policy</a>
+          <a href="{{unsubscribeUrl}}" class="footer-link">Unsubscribe</a>
         </p>
       </div>
     </div>
@@ -96,6 +87,8 @@ export interface BookingEmailData {
 // ── 2. Reminder 24 Hours ─────────────────────────────────────────────────────
 export function reminder24hTemplate(data: BookingEmailData): { subject: string; html: string } {
   const subject = `⏰ Reminder: ${data.serviceName} Tomorrow at ${data.appointmentTime}`;
+  // Subject is plain text (built from raw data above); everything below is HTML.
+  data = escapeData(data);
 
   const html = baseTemplate(`
     <div class="body">

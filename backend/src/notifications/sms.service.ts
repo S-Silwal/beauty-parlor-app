@@ -1,6 +1,7 @@
 // src/notifications/sms.service.ts
 import twilio from 'twilio';
 import { prisma } from '../config/database';
+import { BRAND } from '../templates/brand';
 
 // Twilio's client constructor validates the Account SID synchronously and
 // THROWS if it's missing/malformed. This module is imported at server
@@ -67,7 +68,7 @@ function buildSmsMessage(event: SmsEvent, data: SmsData): string {
       return `Hi ${name}! ⏰ Reminder: Your ${data.serviceName} is tomorrow at ${data.appointmentTime}. Crown & Glow, 456 Glow Ave. Need to cancel? Call (317) 555-0187 ASAP.`;
 
     case 'CANCELLED':
-      return `Hi ${name}, your ${data.serviceName} appointment on ${data.appointmentDate} has been cancelled. Book again at crownandglow.com or call (317) 555-0187.`;
+      return `Hi ${name}, your ${data.serviceName} appointment on ${data.appointmentDate} has been cancelled. Book again at ${BRAND.website}/booking or call ${BRAND.phone}.`;
 
     case 'RESCHEDULED':
       return `Hi ${name}! 📅 Your ${data.serviceName} has been rescheduled to ${data.appointmentDate} at ${data.appointmentTime}. Crown & Glow — (317) 555-0187.`;
@@ -76,7 +77,7 @@ function buildSmsMessage(event: SmsEvent, data: SmsData): string {
       return `Hi ${name}, your requested change to ${data.serviceName} wasn't approved — your booking for ${data.appointmentDate} at ${data.appointmentTime} still stands. Questions? Call (317) 555-0187.`;
 
     default:
-      return `Crown & Glow: Your appointment has been updated. Visit crownandglow.com for details.`;
+      return `Crown & Glow: Your appointment has been updated. View details at ${BRAND.website}/dashboard`;
   }
 }
 

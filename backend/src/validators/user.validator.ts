@@ -12,11 +12,11 @@ export const updateProfileSchema = z.object({
     .optional(),
 
   email: z
-    .string()
-    .email("Invalid email address")
-    .trim()
-    .toLowerCase()
-    .optional(),
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email("Invalid email address"))
+  .optional(),
 });
 
 /**

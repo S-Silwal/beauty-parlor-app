@@ -39,10 +39,10 @@ export const registerSchema = z.object({//expported for validation rules
     .trim(),
 
   email: z
-    .string()
-    .email("Please enter a valid email address")
-    .trim()
-    .toLowerCase(),
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email("Please enter a valid email address")),
 
   // ✅ Optional US phone
   phone: usPhoneSchema,
@@ -61,7 +61,7 @@ export const registerSchema = z.object({//expported for validation rules
  * Login Schema
  */
 export const loginSchema = z.object({
-  email: z.string().email("Invalid email address").trim().toLowerCase(),
+ email: z.string().trim().toLowerCase().pipe(z.email("Invalid email address")),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -69,7 +69,7 @@ export const loginSchema = z.object({
  * Forgot Password Schema
  */
 export const forgotPasswordSchema = z.object({
-  email: z.string().email("Invalid email address").trim().toLowerCase(),
+ email: z.string().trim().toLowerCase().pipe(z.email("Invalid email address")),
 });
 
 /**

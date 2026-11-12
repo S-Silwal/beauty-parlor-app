@@ -14,11 +14,13 @@ export const createStaffSchema = z.object({
     .optional(),
 
   // ✅ Added
-  email: z
-    .string()
-    .email("Invalid email address")
-    .optional()
-    .or(z.literal('')),
+email: z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email("Invalid email address"))
+  .optional()
+  .or(z.literal('')),
 
   // ✅ Added
   phone: z
