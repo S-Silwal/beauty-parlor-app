@@ -176,6 +176,9 @@ export default function HeroSlider({ slides }: { slides: HeroSlide[] }) {
             backgroundImage: `linear-gradient(160deg, rgba(20,16,12,.72) 0%, rgba(44,35,25,.55) 55%, rgba(184,154,106,.28) 100%), url('${slide.imageUrl}')`,
           }}
           aria-hidden={i !== index}
+          // aria-hidden alone left the hidden slides' CTA links tabbable;
+          // inert removes them from tab order and the accessibility tree.
+          inert={i !== index}
         >
           <div className="hm-hero-inner">
             <span className="hm-hero-rule" aria-hidden="true" />

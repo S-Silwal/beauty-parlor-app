@@ -30,6 +30,7 @@ export default function Navbar() {
           --cream:    #FDFAF6;
           --cream-bd: #EDE6DC;
           --gold:     #B89A6A;
+          --gold-text: #8A6D3B; /* gold for TEXT on cream: 4.66:1 (WCAG AA) */
           --gold-lt:  #D4B896;
           --charcoal: #2C2825;
           --mid:      #6B635A;
@@ -57,7 +58,7 @@ export default function Navbar() {
           color: var(--charcoal); letter-spacing: .01em;
           flex-shrink: 0; cursor: default; user-select: none;
         }
-        .nb-logo em { font-style: italic; color: var(--gold); }
+        .nb-logo em { font-style: italic; color: var(--gold-text); }
 
         .nb-links {
           /* gap (8px) + link padding (8px each side) ≈ 32px of breathing
@@ -88,13 +89,13 @@ export default function Navbar() {
         .nb-auth { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
         .nb-greeting {
-          font-size: 13px; font-weight: 400; color: var(--soft);
+          font-size: 13px; font-weight: 400; color: var(--mid); /* --soft was 2.8:1 */
           white-space: nowrap;
         }
         .nb-greeting strong { color: var(--charcoal); font-weight: 600; }
         .nb-admin-tag {
           font-size: 10px; font-weight: 700; letter-spacing: .1em;
-          text-transform: uppercase; color: var(--gold); margin-left: 4px;
+          text-transform: uppercase; color: var(--gold-text); margin-left: 4px;
         }
 
         .nb-btn-ghost {

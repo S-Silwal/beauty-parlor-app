@@ -154,6 +154,7 @@ export default async function HomePage() {
           --cream-md: #EDE6DC;
           --card-bg:  #FDFAF6;
           --gold:     #B89A6A;
+          --gold-text: #8A6D3B; /* gold for TEXT on cream: 4.66:1 (WCAG AA) */
           --gold-lt:  #D4B896;
           --charcoal: #2C2825;
           --mid:      #6B635A;
@@ -200,7 +201,7 @@ export default async function HomePage() {
         .hm-kicker {
           font-family: var(--font-ui), sans-serif;
           font-size: 11px; font-weight: 600; letter-spacing: .2em;
-          text-transform: uppercase; color: var(--gold); margin-bottom: 12px;
+          text-transform: uppercase; color: var(--gold-text); margin-bottom: 12px;
         }
         .hm-section-title {
           /* Plain roman — the gold italic accent word is reserved for the
@@ -248,7 +249,7 @@ export default async function HomePage() {
         .hm-service-meta { display: flex; flex-direction: column; gap: 4px; }
         .hm-service-duration {
           font-family: var(--font-ui), sans-serif; font-size: 11px; font-weight: 500;
-          letter-spacing: .04em; font-variant-numeric: tabular-nums; color: var(--soft);
+          letter-spacing: .04em; font-variant-numeric: tabular-nums; color: var(--mid); /* --soft was 2.8:1 */
         }
         .hm-service-price {
           font-family: var(--font-ui), sans-serif; font-size: 18px; font-weight: 600;
