@@ -133,15 +133,15 @@ export default function RegisterPage() {
         .rg-panel::before{content:'';position:absolute;top:0;left:0;width:1px;height:100%;background:linear-gradient(to bottom,transparent,#EDE6DC 25%,#EDE6DC 75%,transparent);}
         .rg-box{width:100%;max-width:420px;padding:16px 0;}
 
-        .rg-eyebrow{font-size:11px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#B89A6A;margin-bottom:14px;}
+        .rg-eyebrow{font-size:11px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#7D6232;margin-bottom:14px;}
         .rg-title{font-family:'Cormorant Garamond',serif;font-size:42px;font-weight:400;color:#2C2825;margin:0 0 6px;line-height:1.0;}
-        .rg-title em{font-style:italic;color:#B89A6A;}
-        .rg-subtitle{font-size:15px;font-weight:300;color:#9E968E;margin-bottom:28px;line-height:1.65;}
+        .rg-title em{font-style:italic;color:#7D6232;}
+        .rg-subtitle{font-size:15px;font-weight:300;color:#6B635A;margin-bottom:28px;line-height:1.65;}
 
         .rg-err{background:#FEF2F2;border:1px solid #FECACA;border-radius:3px;padding:12px 16px;font-size:13px;color:#B91C1C;margin-bottom:18px;}
         .rg-field{margin-bottom:18px;}
         .rg-label{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#6B635A;margin-bottom:7px;}
-        .rg-optional{font-size:10px;font-weight:400;letter-spacing:.06em;color:#B89A6A;text-transform:none;}
+        .rg-optional{font-size:10px;font-weight:400;letter-spacing:.06em;color:#7D6232;text-transform:none;}
 
         .rg-wrap{position:relative;}
         .rg-input{width:100%;padding:13px 16px;background:#fff;border:1px solid #E8E0D6;border-radius:3px;font-family:'Jost',sans-serif;font-size:15px;font-weight:300;color:#2C2825;outline:none;transition:border-color .2s,box-shadow .2s;box-sizing:border-box;}
@@ -159,7 +159,7 @@ export default function RegisterPage() {
         .rg-hint{font-size:12px;margin-top:5px;font-weight:400;}
         .rg-hint.valid{color:#059669;}
         .rg-hint.error{color:#EF4444;}
-        .rg-hint.neutral{color:#9E968E;}
+        .rg-hint.neutral{color:#6B635A;}
 
         .rg-eye{position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9E968E;padding:4px;transition:color .2s;line-height:0;}
         .rg-eye:hover{color:#B89A6A;}
@@ -170,9 +170,9 @@ export default function RegisterPage() {
 
         .rg-div{display:flex;align-items:center;gap:14px;margin-bottom:20px;}
         .rg-dline{flex:1;height:1px;background:#EDE6DC;}
-        .rg-dtext{font-size:11px;color:#B8B0A8;letter-spacing:.06em;white-space:nowrap;}
-        .rg-link-row{text-align:center;font-size:15px;font-weight:300;color:#9E968E;}
-        .rg-link{color:#B89A6A;font-weight:600;text-decoration:none;transition:color .2s;}
+        .rg-dtext{font-size:11px;color:#6B635A;letter-spacing:.06em;white-space:nowrap;}
+        .rg-link-row{text-align:center;font-size:15px;font-weight:300;color:#6B635A;}
+        .rg-link{color:#7D6232;font-weight:600;text-decoration:none;transition:color .2s;}
         .rg-link:hover{color:#2C2825;}
 
         /* Success */
@@ -229,7 +229,7 @@ export default function RegisterPage() {
                   It expires in <strong>24 hours</strong>.
                 </p>
                 <Link href="/login" className="rg-sb">Go to Login</Link>
-                <p style={{marginTop:18,fontSize:13,color:'#9E968E'}}>
+                <p style={{marginTop:18,fontSize:13,color:'#6B635A'}}>
                   Didn&apos;t receive it?{' '}
                   <button
                     onClick={async () => {

@@ -180,7 +180,7 @@ export default function ServicesPage() {
         .sv-kicker {
           font-family: var(--font-ui), sans-serif;
           font-size: 11px; font-weight: 600; letter-spacing: .2em;
-          text-transform: uppercase; color: #8A6D3B; margin-bottom: 10px; /* AA on cream; was #B89A6A (2.4:1) */
+          text-transform: uppercase; color: #7D6232; margin-bottom: 10px; /* AA on #F7F3EE (5.2:1); was #B89A6A (2.4:1) */
         }
         .sv-title {
           font-family: var(--font-display), Georgia, serif;
