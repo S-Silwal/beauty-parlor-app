@@ -4,7 +4,7 @@
 
 **A full-stack salon booking platform with real-time admin and customer dashboards**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Railway-8A2BE2?style=for-the-badge)](https://caring-playfulness-production-2f7f.up.railway.app/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Railway-8A2BE2?style=for-the-badge)](https://caring-playfulness-production-16c66a0f.up.railway.app/)
 ![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express)
