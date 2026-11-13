@@ -73,6 +73,19 @@ export const errorHandler = (
       requestId: req.requestId,
     });
   }
+  // ====================== REQUEST BODY ERRORS ======================
+  // express.json() rejects bodies over its size limit (413) and malformed
+  // JSON (400) with errors carrying `type` and a numeric `status`. These
+  // used to fall through to the generic branch below and come back as a
+  // 500 — a client mistake reported as a server crash (found by QA 2K).
+  const bodyErr = err as unknown as { type?: string; status?: number };
+  if (bodyErr.type === "entity.too.large") {
+    return res.status(413).json({ success: false, message: "Request body is too large" });
+  }
+  if (bodyErr.type === "entity.parse.failed") {
+    return res.status(400).json({ success: false, message: "Malformed JSON in request body" });
+  }
+
   // ====================== JWT ERRORS ======================
   if (err.name === "JsonWebTokenError") {
     return res.status(401).json({

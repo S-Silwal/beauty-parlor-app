@@ -75,8 +75,13 @@ describe('concurrent bookings for the same staff + time (distinct customers)', (
 
     // Any other status (500, 503…) means a race leaked past the error
     // handling — show every status so the failure is easy to read.
-    expect({ winners, conflicts, statuses: [...new Set(statuses)].sort() })
-      .toEqual({ winners: 1, conflicts: N - 1, statuses: [201, 409] });
+    // Anything other than 201/409 is a race leaking past error handling —
+    // include its message so a flaky failure explains itself.
+    const unexpected = responses
+      .filter(r => r.status !== 201 && r.status !== 409)
+      .map(r => `${r.status}: ${r.body?.message ?? JSON.stringify(r.body).slice(0, 200)}`);
+    expect({ winners, conflicts, statuses: [...new Set(statuses)].sort(), unexpected: [...new Set(unexpected)] })
+      .toEqual({ winners: 1, conflicts: N - 1, statuses: [201, 409], unexpected: [] });
 
     const active = await prisma.appointment.count({
       where: { staff_id: staffId, status: { in: ['PENDING', 'CONFIRMED', 'CHECKED_IN'] } },

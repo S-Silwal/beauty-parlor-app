@@ -1,6 +1,15 @@
 // jest.config.ts
 import type { Config } from 'jest';
 
+// Run every test in the SALON's timezone. Many tests build times with
+// Date#setHours(), which uses the machine's local zone — so "10:00" meant
+// 10 AM on a dev laptop in Indianapolis but 5-6 AM salon time in UTC CI.
+// Now that booking enforces salon hours, that difference would make CI
+// reject bookings the same tests accept locally. Pinning TZ here (the
+// config loads before any worker starts) makes setHours() mean salon time
+// everywhere. Production code never relies on TZ: it uses utils/timezone.
+process.env.TZ = 'America/Indiana/Indianapolis';
+
 const config: Config = {
   // Use ts-jest to handle TypeScript files
   preset: 'ts-jest',

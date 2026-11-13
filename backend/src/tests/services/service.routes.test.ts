@@ -1,5 +1,6 @@
 import request from 'supertest';
 import app from '../../app';
+import { prisma } from '../../config/database';
 
 // ServiceService.getAll() was the one list endpoint the hardening audit
 // flagged as never having been given the opt-in pagination contract that
@@ -8,16 +9,25 @@ import app from '../../app';
 // shape and the new paginated shape now that it's been added.
 
 describe('GET /api/services', () => {
+  // Compare against what the database actually holds instead of a hardcoded
+  // "10 seeded services": that floor broke on any dev database where a
+  // service had been deactivated (e.g. through the admin page), even though
+  // the endpoint was behaving correctly. Six is the minimum the page-2 test
+  // below needs (5 per page) — enough to stay meaningful on real data.
+  let activeCount: number;
+  beforeAll(async () => {
+    activeCount = await prisma.service.count({ where: { isActive: true } });
+    expect(activeCount).toBeGreaterThanOrEqual(6);
+  });
+
   it('returns the full unpaginated list when no page/limit query params are given', async () => {
     const res = await request(app).get('/api/services');
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.services)).toBe(true);
-    // Seeded with 10 active services (see utils/seed.ts); no test in this
-    // suite creates or deactivates a service, so this floor holds
-    // regardless of run order.
-    expect(res.body.services.length).toBeGreaterThanOrEqual(10);
+    // Unpaginated = every active service, no more and no fewer.
+    expect(res.body.services.length).toBe(activeCount);
     expect(res.body.pagination).toBeUndefined();
   });
 
@@ -28,7 +38,7 @@ describe('GET /api/services', () => {
     expect(res.body.services).toHaveLength(2);
     expect(res.body.pagination.page).toBe(1);
     expect(res.body.pagination.limit).toBe(2);
-    expect(res.body.pagination.total).toBeGreaterThanOrEqual(10);
+    expect(res.body.pagination.total).toBe(activeCount);
   });
 
   it('returns a different, non-overlapping slice on page 2 than page 1', async () => {

@@ -1,7 +1,7 @@
 // app/booking/page.tsx
 'use client';
 
-import { Suspense, useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -65,7 +65,15 @@ function BookingForm() {
   const [selectedDate, setSelectedDate]       = useState('');
   const [availableSlots, setAvailableSlots]   = useState<string[]>([]);
   const [selectedSlot, setSelectedSlot]       = useState('');
+  // One idempotency key per booking attempt. If the response is lost (the
+  // connection drops right after submit), retrying reuses this key and the
+  // server hands back the booking it already made — no duplicate, no
+  // confusing "already booked" error. A new key starts once the booking
+  // succeeds or the customer changes what they're booking.
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [notes, setNotes]                     = useState('');
+  // New draft → new idempotency key (see idempotencyKeyRef above)
+  useEffect(() => { idempotencyKeyRef.current = null; }, [selectedService, selectedStaff, selectedDate, selectedSlot, notes]);
   const [loading, setLoading]                 = useState(false);
   const [bookingLoading, setBookingLoading]   = useState(false);
   const [error, setError]                     = useState('');
@@ -187,9 +195,11 @@ function BookingForm() {
         notes:            notes?.trim() || undefined,
       };
 
-      const res = await api.bookAppointment(appointmentData, token);
+      if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID();
+      const res = await api.bookAppointment(appointmentData, token, idempotencyKeyRef.current);
 
       if (res.success) {
+        idempotencyKeyRef.current = null;
         // Exclude this appointment from the same-service-same-day
         // pre-check below — see justBookedId's declaration.
         setJustBookedId(res.appointment?.id ?? null);
@@ -243,7 +253,9 @@ function BookingForm() {
       }
     } catch (err) {
       console.error('Booking Error:', err);
-      setError(err instanceof Error ? err.message : 'Booking failed. Please try again.');
+      // fetch() only throws on a network failure, so the server may or may
+      // not have saved the booking. Retrying is safe (same idempotency key).
+      setError("We couldn't confirm your booking because the connection dropped. Check your connection and press Confirm again; you won't be double-booked.");
     } finally {
       setBookingLoading(false);
     }
