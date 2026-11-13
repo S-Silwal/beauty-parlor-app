@@ -32,6 +32,20 @@ const FALLBACK_SLIDE: HeroSlide = {
 
 const AUTOPLAY_MS = 5000;
 
+// Hero images are CSS backgrounds, so Next's <Image> optimizer never sees
+// them and they were served as the raw upload (~230 KB JPEGs). Asking
+// Cloudinary for f_auto,q_auto serves AVIF/WebP at a perceptually tuned
+// quality instead (~40-65 KB for the same image). Non-Cloudinary URLs and
+// ones that already carry transformations are left untouched.
+function optimizeCloudinary(url: string): string {
+  const marker = '/image/upload/';
+  const i = url.indexOf(marker);
+  if (!url.includes('res.cloudinary.com') || i === -1) return url;
+  const rest = url.slice(i + marker.length);
+  if (/^(f_|q_|w_|c_)/.test(rest)) return url;
+  return url.slice(0, i + marker.length) + 'f_auto,q_auto/' + rest;
+}
+
 export default function HeroSlider({ slides }: { slides: HeroSlide[] }) {
   const activeSlides = slides.length > 0 ? slides : [FALLBACK_SLIDE];
   const isStatic = activeSlides.length === 1;
@@ -173,9 +187,12 @@ export default function HeroSlider({ slides }: { slides: HeroSlide[] }) {
           key={slide.id}
           className={`hm-hero-slide${i === index ? ' hm-hero-slide-active' : ''}`}
           style={{
-            backgroundImage: `linear-gradient(160deg, rgba(20,16,12,.72) 0%, rgba(44,35,25,.55) 55%, rgba(184,154,106,.28) 100%), url('${slide.imageUrl}')`,
+            backgroundImage: `linear-gradient(160deg, rgba(20,16,12,.72) 0%, rgba(44,35,25,.55) 55%, rgba(184,154,106,.28) 100%), url('${optimizeCloudinary(slide.imageUrl)}')`,
           }}
           aria-hidden={i !== index}
+          // aria-hidden alone left the hidden slides' CTA links tabbable;
+          // inert removes them from tab order and the accessibility tree.
+          inert={i !== index}
         >
           <div className="hm-hero-inner">
             <span className="hm-hero-rule" aria-hidden="true" />

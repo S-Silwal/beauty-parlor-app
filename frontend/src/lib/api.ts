@@ -88,13 +88,17 @@ getStaff: async () => {                    // ← Added this
   // ====================== APPOINTMENTS ======================
  bookAppointment: async (
    data: { service_id: string; staff_id?: string; appointment_date: string; notes?: string },
-   token: string
+   token: string,
+   idempotencyKey?: string
  ) => {
   const res = await fetch(`${API_BASE}/api/appointments/book`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      // Same key on a retry = the server returns the original booking
+      // instead of creating (or rejecting) a second one.
+      ...(idempotencyKey && { "Idempotency-Key": idempotencyKey }),
     },
     credentials: "include",
     body: JSON.stringify(data),

@@ -181,7 +181,7 @@ const sampleGallery = [
     category: "facials",        // ✅ matches Facials tab
   },
   {
-    url: "https://images.unsplash.com/photo-1599407383981-35a45f27e1e9?w=800&q=80",
+    url: "https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=800&q=80",
     alt_text: "Glow Hydrating Facial",
     category: "facials",        // ✅ matches Facials tab
   },

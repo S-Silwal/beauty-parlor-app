@@ -25,8 +25,8 @@ npm run db:reset       # reset + generate + migrate + seed
 
 Running tests (Jest + Supertest):
 ```bash
-npx jest                        # all tests
-npx jest --testPathPattern=auth  # single file/pattern
+npm test                        # all tests (jest --runInBand: test files share one DB, so never run them in parallel)
+npx jest --testPathPatterns=auth  # single file/pattern (Jest 30: plural flag)
 npx jest --watch                 # watch mode
 ```
 

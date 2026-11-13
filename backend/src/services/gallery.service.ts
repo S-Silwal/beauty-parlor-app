@@ -96,24 +96,6 @@ export class GalleryService {
     });
   }
 
-  // ── Legacy: upload file through server → Cloudinary ──────────────────────
-  static async uploadImage(file: Express.Multer.File, category: string = "gallery") {
-    const result = await cloudinary.uploader.upload(
-      `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
-      { folder: "beauty-parlor/gallery", resource_type: "image" }
-    );
-
-    return await prisma.galleryImage.create({
-      data: {
-        url:         result.secure_url,
-        alt_text:    file.originalname,
-        category,
-        is_active:   true,
-        uploaded_by: "ADMIN",
-      },
-    });
-  }
-
   // ── Soft delete (DB) + hard delete (Cloudinary storage) ───────────────────
   static async deleteImage(id: string) {
     const image = await prisma.galleryImage.findUnique({ where: { id } });

@@ -14,7 +14,7 @@ export const serverConfig = {
       : ["http://localhost:3000", "http://localhost:3001"],
     credentials: true,//allow cookies to be sent in cross-origin requests
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Idempotency-Key"], // Idempotency-Key: safe booking retries
   },
 };
 

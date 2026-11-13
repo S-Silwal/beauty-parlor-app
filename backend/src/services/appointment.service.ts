@@ -21,6 +21,47 @@ import {
 
 type Tx = Prisma.TransactionClient;
 
+// ── Working hours (shared by the slot list AND the booking endpoints) ───────
+// Before QA 2K, only getAvailableSlots() knew about salon hours and staff
+// time off — bookAppointment()/rescheduleAppointment() accepted any future
+// instant, so a direct API call could book 3:00 AM or a stylist's blocked
+// lunch hour. Both paths now read the same windows from here.
+const DEFAULT_WORKING_WINDOWS = [{ start: "09:00", end: "19:00" }];
+
+async function getWorkingWindows(dateStr: string, staffId?: string | null) {
+  let workingWindows: { start: string; end: string }[] = DEFAULT_WORKING_WINDOWS;
+  let blockedWindows: { start: string; end: string }[] = [];
+  if (staffId) {
+    const { start, end } = salonDayBounds(dateStr);
+    const rows = await prisma.staffAvailability.findMany({
+      where: { staff_id: staffId, date: { gte: start, lte: end } },
+    });
+    const custom = rows.filter((r) => !r.is_blocked);
+    if (custom.length > 0) workingWindows = custom.map((r) => ({ start: r.start_time, end: r.end_time }));
+    blockedWindows = rows.filter((r) => r.is_blocked).map((r) => ({ start: r.start_time, end: r.end_time }));
+  }
+  return { workingWindows, blockedWindows };
+}
+
+/** The whole booking [newStart, newEnd) must fit inside one working window
+ *  (salon-local, DST-aware via salonWallTimeToUtc) and miss every blocked one. */
+async function assertWithinWorkingHours(newStart: Date, newEnd: Date, staffId?: string | null) {
+  const dateStr = salonLocalDateStr(newStart);
+  const { workingWindows, blockedWindows } = await getWorkingWindows(dateStr, staffId);
+  const fits = workingWindows.some(
+    (w) => newStart >= salonWallTimeToUtc(dateStr, w.start) && newEnd <= salonWallTimeToUtc(dateStr, w.end),
+  );
+  if (!fits) {
+    throw new AppError("That time is outside salon hours. Please choose one of the available slots.", 400);
+  }
+  const blocked = blockedWindows.some(
+    (b) => newStart < salonWallTimeToUtc(dateStr, b.end) && newEnd > salonWallTimeToUtc(dateStr, b.start),
+  );
+  if (blocked) {
+    throw new AppError("That staff member isn't available at this time. Please choose another slot.", 409);
+  }
+}
+
 // Minimum notice a customer must give to cancel or reschedule themselves,
 // in hours. Configurable via env so this can be tuned per-business without
 // a code change; defaults to 2 hours. Staff/admin are never subject to this
@@ -235,9 +276,25 @@ const SERIALIZATION_RETRY_LIMIT = 3;
 export async function runSerializable<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
   for (let attempt = 1; attempt <= SERIALIZATION_RETRY_LIMIT; attempt++) {
     try {
-      return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      return await prisma.$transaction(fn, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        // Bookings for the same staff member queue on an advisory lock while
+        // holding a pooled connection (see lockBookingResources). Prisma's
+        // defaults (maxWait 2s to get a connection, timeout 5s per
+        // transaction) are tight for a rush on one popular slot: a
+        // 15-customer race in QA 2J intermittently produced 500s. Give the
+        // queue room to drain; anything still stuck becomes a 503 below.
+        maxWait: 10_000,
+        timeout: 15_000,
+      });
     } catch (err: any) {
       if (err.code === 'P2034' && attempt < SERIALIZATION_RETRY_LIMIT) continue;
+      // P2028: transaction couldn't start / timed out. P2024: no pooled
+      // connection became free in time. Both mean "too busy right now", not
+      // a server bug — tell the client to retry instead of returning a 500.
+      if (err.code === 'P2028' || err.code === 'P2024') {
+        throw new AppError("We're handling a lot of bookings right now. Please try again in a moment.", 503, "BOOKING_BUSY");
+      }
       // A unique-index violation (P2002 — e.g. appointments_customer_service_
       // active_day_unique) means a concurrent transaction committed a
       // conflicting row that this transaction's snapshot couldn't see.
@@ -370,7 +427,7 @@ export class AppointmentService {
     const bookedAppointments = await prisma.appointment.findMany({
       where: {
         appointment_date: { gte: startOfDay, lte: endOfDay },
-        status:           { in: ["PENDING", "CONFIRMED"] },
+        status:           { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
         ...(data.staff_id && { staff_id: data.staff_id }),
       },
       select: {
@@ -395,25 +452,11 @@ export class AppointmentService {
     //     never had availability configured behaves exactly as before.
     // With no staff_id (browsing "any staff" availability), there's no
     // single schedule to look up, so the flat default is used as-is.
-    let workingWindows: { start: string; end: string }[] = [{ start: "09:00", end: "19:00" }];
-    let blockedWindows: { start: string; end: string }[] = [];
-
-    if (data.staff_id) {
-      const availabilityRows = await prisma.staffAvailability.findMany({
-        where: { staff_id: data.staff_id, date: { gte: startOfDay, lte: endOfDay } },
-      });
-
-      const customWindows = availabilityRows.filter((r) => !r.is_blocked);
-      if (customWindows.length > 0) {
-        workingWindows = customWindows.map((r) => ({ start: r.start_time, end: r.end_time }));
-      }
-      blockedWindows = availabilityRows
-        .filter((r) => r.is_blocked)
-        .map((r) => ({ start: r.start_time, end: r.end_time }));
-    }
+    const { workingWindows, blockedWindows } = await getWorkingWindows(data.date, data.staff_id);
 
     // Generate 30-min slot candidates across the working window(s) only.
     const slots: string[] = [];
+    const slotWindowEnd = new Map<string, string>();
     for (const window of workingWindows) {
       const [startH, startM] = window.start.split(":").map(Number);
       const [endH, endM]     = window.end.split(":").map(Number);
@@ -422,7 +465,9 @@ export class AppointmentService {
       while (cursorMinutes < endMinutes) {
         const h = Math.floor(cursorMinutes / 60);
         const m = cursorMinutes % 60;
-        slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
+        const label = `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+        slots.push(label);
+        slotWindowEnd.set(label, window.end);
         cursorMinutes += 30;
       }
     }
@@ -439,6 +484,9 @@ export class AppointmentService {
       const slotEnd = new Date(
         slotStart.getTime() + requestedDuration * 60 * 1000
       );
+
+      // Reject slots whose booking would run past the end of its working window
+      if (slotEnd > salonWallTimeToUtc(data.date, slotWindowEnd.get(slotTime)!)) return false;
 
       // Reject slots that fall inside a blocked (time-off/break) window
       const isBlocked = blockedWindows.some((block) => {
@@ -505,6 +553,7 @@ export class AppointmentService {
 
     const newStart = appointmentDate;
     const newEnd   = new Date(newStart.getTime() + service.duration * 60 * 1000);
+    await assertWithinWorkingHours(newStart, newEnd, data.staff_id);
 
     const includeShape = {
       service: true,
@@ -651,6 +700,7 @@ export class AppointmentService {
     const newStart = new Date(data.appointment_date);
     const newEnd   = new Date(newStart.getTime() + appointment.duration * 60 * 1000);
     const staffId  = data.staff_id ?? appointment.staff_id;
+    await assertWithinWorkingHours(newStart, newEnd, staffId);
 
     // Overlap check + update happen inside one Serializable transaction —
     // see runSerializable()'s comment for why that's required.

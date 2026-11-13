@@ -1,7 +1,7 @@
 // app/booking/page.tsx
 'use client';
 
-import { Suspense, useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -65,7 +65,15 @@ function BookingForm() {
   const [selectedDate, setSelectedDate]       = useState('');
   const [availableSlots, setAvailableSlots]   = useState<string[]>([]);
   const [selectedSlot, setSelectedSlot]       = useState('');
+  // One idempotency key per booking attempt. If the response is lost (the
+  // connection drops right after submit), retrying reuses this key and the
+  // server hands back the booking it already made — no duplicate, no
+  // confusing "already booked" error. A new key starts once the booking
+  // succeeds or the customer changes what they're booking.
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [notes, setNotes]                     = useState('');
+  // New draft → new idempotency key (see idempotencyKeyRef above)
+  useEffect(() => { idempotencyKeyRef.current = null; }, [selectedService, selectedStaff, selectedDate, selectedSlot, notes]);
   const [loading, setLoading]                 = useState(false);
   const [bookingLoading, setBookingLoading]   = useState(false);
   const [error, setError]                     = useState('');
@@ -187,9 +195,11 @@ function BookingForm() {
         notes:            notes?.trim() || undefined,
       };
 
-      const res = await api.bookAppointment(appointmentData, token);
+      if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID();
+      const res = await api.bookAppointment(appointmentData, token, idempotencyKeyRef.current);
 
       if (res.success) {
+        idempotencyKeyRef.current = null;
         // Exclude this appointment from the same-service-same-day
         // pre-check below — see justBookedId's declaration.
         setJustBookedId(res.appointment?.id ?? null);
@@ -243,7 +253,9 @@ function BookingForm() {
       }
     } catch (err) {
       console.error('Booking Error:', err);
-      setError(err instanceof Error ? err.message : 'Booking failed. Please try again.');
+      // fetch() only throws on a network failure, so the server may or may
+      // not have saved the booking. Retrying is safe (same idempotency key).
+      setError("We couldn't confirm your booking because the connection dropped. Check your connection and press Confirm again; you won't be double-booked.");
     } finally {
       setBookingLoading(false);
     }
@@ -333,8 +345,9 @@ function BookingForm() {
 
           {/* Service */}
           <div>
-            <label className="block text-sm font-medium mb-2">Select Service</label>
+            <label htmlFor="booking-service" className="block text-sm font-medium mb-2">Select Service</label>
             <select
+              id="booking-service"
               value={selectedService}
               onChange={e => { setSelectedService(e.target.value); setJustBookedId(null); }}
               className="w-full p-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500"
@@ -350,8 +363,9 @@ function BookingForm() {
 
           {/* Staff */}
           <div>
-            <label className="block text-sm font-medium mb-2">Preferred Staff (Optional)</label>
+            <label htmlFor="booking-staff" className="block text-sm font-medium mb-2">Preferred Staff (Optional)</label>
             <select
+              id="booking-staff"
               value={selectedStaff}
               onChange={e => setSelectedStaff(e.target.value)}
               className="w-full p-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500"
@@ -365,8 +379,9 @@ function BookingForm() {
 
           {/* Date */}
           <div>
-            <label className="block text-sm font-medium mb-2">Select Date</label>
+            <label htmlFor="booking-date" className="block text-sm font-medium mb-2">Select Date</label>
             <input
+              id="booking-date"
               type="date"
               value={selectedDate}
               onChange={e => { setSelectedDate(e.target.value); setJustBookedId(null); }}
@@ -377,20 +392,23 @@ function BookingForm() {
 
           {/* Time slots */}
           <div>
-            <label className="block text-sm font-medium mb-2">Available Time Slots</label>
+            <p id="booking-slots-label" className="block text-sm font-medium mb-2">Available Time Slots</p>
             {duplicateBooking ? (
               <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3">
                 You already have {services.find(s => s.id === selectedService)?.name} booked on{' '}
                 {formatDate(selectedDate)} at {formatSalonTime(duplicateBooking.appointment_date)}. Choose a different service, or a different day.
               </p>
             ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
+              <div role="group" aria-labelledby="booking-slots-label" className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
                 {loading ? (
                   <p className="col-span-4 text-gray-500">Loading available slots...</p>
                 ) : availableSlots.length > 0 ? (
                   availableSlots.map(slot => (
                     <button
                       key={slot}
+                      type="button"
+                      // Selected state was colour-only; this lets screen readers announce it
+                      aria-pressed={selectedSlot === slot}
                       onClick={() => setSelectedSlot(slot)}
                       className={`p-3 rounded-xl border text-sm font-medium transition ${
                         selectedSlot === slot
@@ -490,6 +508,7 @@ function BookingForm() {
           )}
 
           <textarea
+            aria-label="Special requests or notes (optional)"
             placeholder="Add any special requests or notes (optional)"
             value={notes}
             onChange={e => setNotes(e.target.value)}

@@ -3,7 +3,6 @@ import { Router } from "express";
 import { GalleryController } from "../controllers/gallery.controller";
 import { authenticate } from "../middleware/auth.middleware";
 import { isAdmin } from "../middleware/role.middleware";
-import { upload } from "../middleware/upload.middleware";
 
 const router = Router();
 
@@ -18,14 +17,9 @@ router.get("/signed-url", authenticate, isAdmin, GalleryController.getSignedUrl)
 // ✅ Save image record after frontend has uploaded to Cloudinary
 router.post("/save", authenticate, isAdmin, GalleryController.saveImage);
 
-// Legacy direct upload (keep for backward compatibility)
-router.post(
-  "/upload",
-  authenticate,
-  isAdmin,
-  upload.single("image"),
-  GalleryController.uploadImage
-);
+// The legacy server-side POST /upload route was removed: it skipped the
+// signed flow's allowed_formats + verifyCloudinaryImage checks and accepted
+// any image/* (including SVG). Nothing in the frontend called it.
 
 router.delete("/:id", authenticate, isAdmin, GalleryController.deleteImage);
 
