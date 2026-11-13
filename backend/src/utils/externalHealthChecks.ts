@@ -41,7 +41,16 @@ export async function checkResend(): Promise<CheckStatus> {
       }),
       TIMEOUT_MS
     );
-    return res.ok ? "ok" : "down";
+    if (res.ok) return "ok";
+    // A "Sending access" key (the least-privilege kind a sending-only app
+    // should use) can't list domains: Resend answers 401 restricted_api_key.
+    // That still proves the API is reachable and the key is valid, so it is
+    // not an outage — reporting "down" here was a false alarm.
+    if (res.status === 401) {
+      const body = (await res.json().catch(() => ({}))) as { name?: string };
+      if (body.name === "restricted_api_key") return "ok";
+    }
+    return "down";
   } catch {
     return "down";
   }

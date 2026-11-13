@@ -1,6 +1,6 @@
 // app/layout.tsx
 import type { Metadata } from "next";
-import { Fraunces, Karla, Archivo } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import SiteChrome from "../components/SiteChrome";
 import { AuthProvider } from "@/context/AuthContext";
@@ -12,22 +12,36 @@ import { AuthProvider } from "@/context/AuthContext";
 //   --font-display : editorial serif for heroes, section titles, card names
 //   --font-body    : warm humanist sans for prose (About story, hero sub, descriptions)
 //   --font-ui      : neo-grotesk for chrome — buttons, labels, prices, durations, stats
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  style: ["normal", "italic"],
+// Self-hosted (next/font/local) rather than next/font/google: the Google
+// loader downloads the fonts during every `next build`, and when that
+// request was slow or blocked the whole CI build failed (runs #97 and
+// #109). The files in ./fonts are the same Latin subsets from Fontsource,
+// licensed under the SIL OFL (see ./fonts/OFL-*.txt). Next still preloads
+// them, adds size-adjusted fallbacks, and serves them from our own domain.
+const fraunces = localFont({
+  src: [
+    { path: "./fonts/fraunces-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/fraunces-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/fraunces-latin-400-italic.woff2", weight: "400", style: "italic" },
+    { path: "./fonts/fraunces-latin-500-italic.woff2", weight: "500", style: "italic" },
+  ],
   variable: "--font-display",
   display: "swap",
 });
-const karla = Karla({
-  subsets: ["latin"],
-  weight: ["400", "500"],
+const karla = localFont({
+  src: [
+    { path: "./fonts/karla-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/karla-latin-500-normal.woff2", weight: "500", style: "normal" },
+  ],
   variable: "--font-body",
   display: "swap",
 });
-const archivo = Archivo({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
+const archivo = localFont({
+  src: [
+    { path: "./fonts/archivo-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/archivo-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/archivo-latin-700-normal.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-ui",
   display: "swap",
 });
