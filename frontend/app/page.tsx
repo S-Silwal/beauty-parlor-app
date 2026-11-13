@@ -154,7 +154,7 @@ export default async function HomePage() {
           --cream-md: #EDE6DC;
           --card-bg:  #FDFAF6;
           --gold:     #B89A6A;
-          --gold-text: #8A6D3B; /* gold for TEXT on cream: 4.66:1 (WCAG AA) */
+          --gold-text: #7D6232; /* gold for TEXT on cream: 5.5:1 on #FDFAF6, 5.2:1 on #F7F3EE (WCAG AA) */
           --gold-lt:  #D4B896;
           --charcoal: #2C2825;
           --mid:      #6B635A;

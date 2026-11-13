@@ -242,14 +242,14 @@ export default function LoginPage() {
         /* Form header */
         .lg-eyebrow {
           font-size: 11px; font-weight: 600; letter-spacing: .22em;
-          text-transform: uppercase; color: #B89A6A; margin-bottom: 14px;
+          text-transform: uppercase; color: #7D6232; margin-bottom: 14px;
         }
         .lg-title {
           font-family: 'Cormorant Garamond', serif;
           font-size: 48px; font-weight: 400;
           color: #2C2825; margin: 0 0 8px; line-height: 1.0;
         }
-        .lg-title em { font-style: italic; color: #B89A6A; }
+        .lg-title em { font-style: italic; color: #7D6232; }
         .lg-subtitle {
           /* darkened from a washed-out #9E968E for real body-text contrast */
           font-size: 16px; font-weight: 300;
@@ -302,7 +302,7 @@ export default function LoginPage() {
         /* Forgot */
         .lg-forgot {
           display: block; text-align: right;
-          font-size: 13px; color: #B89A6A;
+          font-size: 13px; color: #7D6232;
           text-decoration: none;
           margin-top: -14px; margin-bottom: 30px;
           transition: color .2s;
@@ -333,17 +333,17 @@ export default function LoginPage() {
         }
         .lg-divider-line { flex: 1; height: 1px; background: #EDE6DC; }
         .lg-divider-text {
-          font-size: 12px; color: #B8B0A8;
+          font-size: 12px; color: #6B635A;
           letter-spacing: .06em; white-space: nowrap;
         }
 
         /* Register row */
         .lg-register-row {
           text-align: center;
-          font-size: 14px; font-weight: 300; color: #7C7364;
+          font-size: 14px; font-weight: 300; color: #6B635A;
         }
         .lg-register-link {
-          color: #B89A6A; font-weight: 600;
+          color: #7D6232; font-weight: 600;
           text-decoration: none; transition: color .2s;
         }
         .lg-register-link:hover { color: #2C2825; }
@@ -357,7 +357,7 @@ export default function LoginPage() {
         .lg-trust-item {
           display: flex; align-items: center; gap: 7px;
           font-size: 11px; font-weight: 500; letter-spacing: .07em;
-          text-transform: uppercase; color: #8B8276;
+          text-transform: uppercase; color: #6B635A;
         }
 
         /* Mobile */

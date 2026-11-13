@@ -422,7 +422,7 @@ function BookingForm() {
                 ) : selectedDate ? (
                   <p className="col-span-4 text-gray-500">No slots available for this date</p>
                 ) : (
-                  <p className="col-span-4 text-gray-400">Please select a date first</p>
+                  <p className="col-span-4 text-gray-600">Please select a date first</p>
                 )}
               </div>
             )}
@@ -480,14 +480,14 @@ function BookingForm() {
                 {/* ✅ Now uses fixed formatDate — shows correct local date */}
                 {selectedDate
                   ? formatDate(selectedDate)
-                  : <span className="text-gray-400">Not selected</span>
+                  : <span className="text-gray-600">Not selected</span>
                 }
               </p>
               <p>
                 <strong>Time:</strong>{' '}
                 {summarySlot
                   ? <span className="text-pink-600 font-semibold">{formatTime(summarySlot)}</span>
-                  : <span className="text-gray-400">Not selected</span>
+                  : <span className="text-gray-600">Not selected</span>
                 }
               </p>
               {selectedStaff && (
@@ -502,7 +502,7 @@ function BookingForm() {
               </p>
             </div>
           ) : (
-            <div className="mb-6 p-5 bg-gray-50 rounded-2xl text-gray-400 text-sm">
+            <div className="mb-6 p-5 bg-gray-50 rounded-2xl text-gray-600 text-sm">
               Select a service to see your booking summary
             </div>
           )}
