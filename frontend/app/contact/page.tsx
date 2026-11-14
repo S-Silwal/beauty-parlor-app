@@ -94,10 +94,11 @@ export default function ContactPage() {
           background: #DDD5C8;
         }
 
+        /* One row per day: day names in the first column, times aligned in the second */
         .cg-hours-grid {
           display: grid;
-          grid-template-columns: auto 1fr;
-          gap: 4px 20px;
+          grid-template-columns: max-content 1fr;
+          gap: 6px 24px;
           font-size: 13px;
         }
 
@@ -270,8 +271,10 @@ export default function ContactPage() {
                 Business hours
               </h2>
               <div className="cg-hours-grid">
+                {/* display: contents lets the day and time become the grid's two
+                    columns, so each day gets its own row instead of two per row */}
                 {HOURS_SUMMARY.map(({ label, time }) => (
-                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <div key={label} style={{ display: 'contents' }}>
                     <span style={{ color: '#8B6244' }}>{label}</span>
                     <span style={{ color: '#2C1A0E', fontWeight: 500 }}>{time}</span>
                   </div>
