@@ -11,7 +11,7 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
 ![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge&logo=prisma)
 
-[Live Demo](https://caring-playfulness-production-2f7f.up.railway.app/) · [Features](#-features) · [Tech Stack](#-tech-stack) · [Security](#-security) · [Run Locally](#-getting-started)
+[Live Demo](https://caring-playfulness-production-16c66a0f.up.railway.app/) · [Features](#-features) · [Tech Stack](#-tech-stack) · [Security](#-security) · [Run Locally](#-getting-started)
 
 ![Crown & Glow demo](docs/screenshots/demo.gif)
 
