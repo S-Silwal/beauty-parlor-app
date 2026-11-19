@@ -3,33 +3,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
-import localFont from 'next/font/local';
-
-// Gallery-only type pairing: high-contrast serif for headings, clean sans for
-// labels and captions. Self-hosted like the sitewide fonts in layout.tsx
-// (files + OFL licenses in app/fonts).
-const galleryDisplay = localFont({
-  src: [
-    { path: '../fonts/cormorant-garamond-latin-500-normal.woff2', weight: '500', style: 'normal' },
-    { path: '../fonts/cormorant-garamond-latin-600-normal.woff2', weight: '600', style: 'normal' },
-  ],
-  variable: '--gl-font-display',
-  display: 'swap',
-});
-const gallerySans = localFont({
-  src: [
-    { path: '../fonts/dm-sans-latin-400-normal.woff2', weight: '400', style: 'normal' },
-    { path: '../fonts/dm-sans-latin-500-normal.woff2', weight: '500', style: 'normal' },
-    { path: '../fonts/dm-sans-latin-600-normal.woff2', weight: '600', style: 'normal' },
-  ],
-  variable: '--gl-font-sans',
-  display: 'swap',
-});
-
-// Gallery palette
-const GL_BG     = '#231718'; // deep espresso/plum
-const GL_ACCENT = '#E8C6B0'; // warm champagne
-const GL_LIGHT  = '#F5DFD0'; // peach-beige
 
 interface GalleryImage {
   id: string;
@@ -94,14 +67,14 @@ export default function GalleryPage() {
   const currentLabel = TABS.find(t => t.key === activeCategory)?.label ?? 'All';
 
   return (
-    <div className={`${galleryDisplay.variable} ${gallerySans.variable}`} style={{ minHeight: '100vh', background: GL_BG, fontFamily: 'var(--gl-font-sans), sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: '#F7F3EE', fontFamily: "'Jost', sans-serif" }}>
       <style>{`
         /* ── Pill tab bar ── */
         .gl-tabbar {
           position: sticky; top: 72px; z-index: 30;
-          background: #231718;
-          border-bottom: 1px solid rgba(232,198,176,.14);
-          box-shadow: 0 2px 12px rgba(0,0,0,.25);
+          background: #fff;
+          border-bottom: 1px solid #EDE6DC;
+          box-shadow: 0 2px 12px rgba(44,40,37,.05);
         }
         @media (max-width: 480px) {
           .gl-tabbar { top: 64px; }
@@ -118,33 +91,30 @@ export default function GalleryPage() {
         .gl-tab {
           flex-shrink: 0; cursor: pointer;
           padding: 9px 20px; border-radius: 999px;
-          border: 1.5px solid #F5DFD0;
-          background: #F5DFD0;
+          border: 1.5px solid #EDE6DC;
+          background: #fff;
           display: flex; align-items: center; gap: 8px;
           transition: all .2s ease;
-          font-family: var(--gl-font-sans), sans-serif;
+          font-family: 'Jost', sans-serif;
         }
-        .gl-tab:hover { border-color: #E8C6B0; background: #E8C6B0; }
-        .gl-tab.active {
-          background: #E8C6B0; border-color: #E8C6B0;
-          box-shadow: 0 0 0 2px #231718, 0 0 0 3.5px #E8C6B0;
-        }
-        .gl-tab.active:hover { background: #F5DFD0; border-color: #F5DFD0; }
+        .gl-tab:hover { border-color: #B89A6A; background: #FDFAF6; }
+        .gl-tab.active { background: #2C2825; border-color: #2C2825; }
+        .gl-tab.active:hover { background: #B89A6A; border-color: #B89A6A; }
 
         .gl-tab-label {
           font-size: 13px; font-weight: 500;
-          color: #231718; white-space: nowrap; transition: color .2s;
+          color: #6B635A; white-space: nowrap; transition: color .2s;
         }
-        .gl-tab.active .gl-tab-label { color: #231718; font-weight: 600; }
+        .gl-tab.active .gl-tab-label { color: #F7F3EE; }
 
         .gl-tab-count {
           font-size: 11px; font-weight: 700;
-          background: rgba(35,23,24,.10); color: #5A4142;
+          background: #EDE6DC; color: #9E968E;
           padding: 2px 8px; border-radius: 999px;
           transition: all .2s; min-width: 22px; text-align: center;
         }
         .gl-tab.active .gl-tab-count {
-          background: #231718; color: #F5DFD0;
+          background: rgba(255,255,255,0.18); color: #F7F3EE;
         }
 
         /* ── Masonry ── */
@@ -160,8 +130,8 @@ export default function GalleryPage() {
         /* ── Card ── */
         .gl-card {
           position: relative; overflow: hidden;
-          border-radius: 16px; cursor: pointer;
-          border: 1px solid rgba(232,198,176,.18); background: #2E2021;
+          border-radius: 4px; cursor: pointer;
+          border: 1px solid #EDE6DC; background: #EDE6DC;
         }
         .gl-card-img {
           width: 100%; height: auto; display: block;
@@ -170,31 +140,31 @@ export default function GalleryPage() {
         .gl-card:hover .gl-card-img { transform: scale(1.05); }
         .gl-card-overlay {
           position: absolute; inset: 0;
-          background: rgba(35,23,24,0);
+          background: rgba(44,40,37,0);
           transition: background .25s;
           display: flex; flex-direction: column;
           justify-content: flex-end; padding: 18px;
         }
-        .gl-card:hover .gl-card-overlay { background: rgba(35,23,24,0.58); }
+        .gl-card:hover .gl-card-overlay { background: rgba(44,40,37,0.52); }
         .gl-card-text {
           opacity: 0; transform: translateY(6px);
           transition: opacity .22s, transform .22s;
-          font-size: 13px; font-weight: 400;
-          color: #F5DFD0; letter-spacing: .04em;
+          font-size: 13px; font-weight: 300;
+          color: #F7F3EE; letter-spacing: .04em;
         }
         .gl-card:hover .gl-card-text { opacity: 1; transform: translateY(0); }
         .gl-badge {
           position: absolute; top: 12px; left: 12px;
-          background: rgba(35,23,24,.85); color: #E8C6B0;
+          background: rgba(44,40,37,.82); color: #D4B896;
           font-size: 9px; font-weight: 700; letter-spacing: .16em;
-          text-transform: uppercase; padding: 4px 10px; border-radius: 999px;
+          text-transform: uppercase; padding: 4px 10px; border-radius: 2px;
           backdrop-filter: blur(4px);
         }
 
         /* ── Lightbox ── */
         .gl-lightbox {
           position: fixed; inset: 0; z-index: 100;
-          background: rgba(26,16,17,.95);
+          background: rgba(20,16,12,.94);
           display: flex; align-items: center; justify-content: center;
           padding: 24px; animation: gl-fadein .2s ease;
         }
@@ -202,30 +172,30 @@ export default function GalleryPage() {
         .gl-lightbox-inner { position: relative; max-width: 900px; width: 100%; }
         .gl-lb-close {
           position: absolute; top: -44px; right: 0;
-          background: none; border: 1px solid rgba(232,198,176,.35);
-          color: #F5DFD0; border-radius: 50%;
+          background: none; border: 1px solid rgba(212,184,150,.3);
+          color: #F7F3EE; border-radius: 50%;
           width: 34px; height: 34px; font-size: 16px;
           cursor: pointer; display: flex; align-items: center; justify-content: center;
           transition: border-color .2s, color .2s;
           z-index: 2;
         }
-        .gl-lb-close:hover { border-color: #E8C6B0; color: #E8C6B0; }
+        .gl-lb-close:hover { border-color: #B89A6A; color: #D4B896; }
         .gl-lb-arrow {
           position: absolute; top: 50%; transform: translateY(-50%);
-          background: rgba(35,23,24,.6); border: 1px solid rgba(232,198,176,.25);
-          color: #F5DFD0; border-radius: 50%;
+          background: rgba(44,40,37,.6); border: 1px solid rgba(212,184,150,.2);
+          color: #F7F3EE; border-radius: 50%;
           width: 40px; height: 40px; font-size: 22px;
           cursor: pointer; display: flex; align-items: center; justify-content: center;
           transition: background .2s, border-color .2s; backdrop-filter: blur(4px);
         }
-        .gl-lb-arrow:hover { background: rgba(232,198,176,.35); border-color: #E8C6B0; }
+        .gl-lb-arrow:hover { background: rgba(184,154,106,.5); border-color: #B89A6A; }
         .gl-lb-arrow.prev { left: -56px; }
         .gl-lb-arrow.next { right: -56px; }
 
         /* Skeleton shimmer */
         .gl-skel {
-          border-radius: 16px;
-          background: linear-gradient(90deg, #2E2021 25%, #3B2A2B 50%, #2E2021 75%);
+          border-radius: 4px;
+          background: linear-gradient(90deg, #EDE6DC 25%, #F7F3EE 50%, #EDE6DC 75%);
           background-size: 200% 100%;
           animation: gl-shimmer 1.4s infinite;
         }
@@ -244,28 +214,28 @@ export default function GalleryPage() {
              inside the top-right corner of the image instead. */
           .gl-lb-close {
             top: 8px; right: 8px;
-            background: rgba(26,16,17,.55); backdrop-filter: blur(4px);
+            background: rgba(20,16,12,.55); backdrop-filter: blur(4px);
           }
         }
       `}</style>
 
       {/* ── Hero ── */}
       <div style={{
-        background: '#1C1213', padding: '80px 24px 72px',
+        background: '#2C2825', padding: '80px 24px 72px',
         textAlign: 'center', position: 'relative', overflow: 'hidden',
       }}>
-        <div style={{ position:'absolute', width:480, height:480, borderRadius:'50%', background:GL_ACCENT, filter:'blur(90px)', opacity:.12, top:-160, right:-100, pointerEvents:'none' }} />
-        <div style={{ position:'absolute', width:280, height:280, borderRadius:'50%', background:GL_LIGHT, filter:'blur(80px)', opacity:.08, bottom:-80, left:-60, pointerEvents:'none' }} />
-        <p style={{ fontFamily:'var(--gl-font-sans), sans-serif', fontSize:11, fontWeight:600, letterSpacing:'.22em', textTransform:'uppercase', color:GL_ACCENT, marginBottom:16, position:'relative' }}>
+        <div style={{ position:'absolute', width:480, height:480, borderRadius:'50%', background:'#B89A6A', filter:'blur(90px)', opacity:.12, top:-160, right:-100, pointerEvents:'none' }} />
+        <div style={{ position:'absolute', width:280, height:280, borderRadius:'50%', background:'#c09060', filter:'blur(80px)', opacity:.10, bottom:-80, left:-60, pointerEvents:'none' }} />
+        <p style={{ fontFamily:'var(--font-ui), sans-serif', fontSize:11, fontWeight:600, letterSpacing:'.22em', textTransform:'uppercase', color:'#D4B896', marginBottom:16, position:'relative' }}>
           Crown &amp; Glow · Indianapolis
         </p>
-        <h1 style={{ fontFamily:'var(--gl-font-display), Georgia, serif', fontSize:'clamp(3rem,6.5vw,5rem)', fontWeight:500, letterSpacing:'-0.01em', color:GL_LIGHT, lineHeight:1.05, margin:'0 0 20px', position:'relative' }}>
+        <h1 style={{ fontFamily:'var(--font-display), Georgia, serif', fontSize:'clamp(2.75rem,6vw,4.5rem)', fontWeight:400, letterSpacing:'-0.01em', color:'#F7F3EE', lineHeight:1.05, margin:'0 0 20px', position:'relative' }}>
           Our Gallery
         </h1>
-        <p style={{ fontFamily:'var(--gl-font-sans), sans-serif', fontSize:16, fontWeight:400, color:'rgba(245,223,208,.72)', maxWidth:440, margin:'0 auto', lineHeight:1.85, position:'relative' }}>
+        <p style={{ fontFamily:'var(--font-body), sans-serif', fontSize:16, fontWeight:400, color:'#A8A09A', maxWidth:440, margin:'0 auto', lineHeight:1.85, position:'relative' }}>
           Real transformations. Real results. Real beauty.
         </p>
-        <div style={{ width:36, height:1, background:GL_ACCENT, margin:'28px auto 0', opacity:.6 }} />
+        <div style={{ width:36, height:1, background:'#B89A6A', margin:'28px auto 0', opacity:.5 }} />
       </div>
 
       {/* ── 5 Pill tabs ── */}
@@ -294,14 +264,14 @@ export default function GalleryPage() {
 
         {/* Section header */}
         <div style={{ marginBottom: 40 }}>
-          <p style={{ fontFamily:'var(--gl-font-sans), sans-serif', fontSize:11, fontWeight:600, letterSpacing:'.2em', textTransform:'uppercase', color:GL_ACCENT, marginBottom:10 }}>
+          <p style={{ fontFamily:'var(--font-ui), sans-serif', fontSize:11, fontWeight:600, letterSpacing:'.2em', textTransform:'uppercase', color:'#B89A6A', marginBottom:10 }}>
             Crown &amp; Glow
           </p>
-          <h2 style={{ fontFamily:'var(--gl-font-display), Georgia, serif', fontSize:'clamp(1.75rem,3.4vw,2.6rem)', fontWeight:600, letterSpacing:'-0.005em', color:GL_LIGHT, margin:'0 0 8px', lineHeight:1.15 }}>
+          <h2 style={{ fontFamily:'var(--font-display), Georgia, serif', fontSize:'clamp(1.5rem,3vw,2.25rem)', fontWeight:500, letterSpacing:'-0.005em', color:'#2C2825', margin:'0 0 8px', lineHeight:1.15 }}>
             {currentLabel}
           </h2>
           {!loading && (
-            <p style={{ fontFamily:'var(--gl-font-sans), sans-serif', fontSize:12, letterSpacing:'.1em', textTransform:'uppercase', color:'rgba(245,223,208,.6)' }}>
+            <p style={{ fontFamily:'var(--font-ui), sans-serif', fontSize:12, letterSpacing:'.1em', textTransform:'uppercase', color:'#9E968E' }}>
               {filteredImages.length} {filteredImages.length === 1 ? 'photo' : 'photos'}
             </p>
           )}
@@ -321,10 +291,10 @@ export default function GalleryPage() {
         {/* Empty */}
         {!loading && filteredImages.length === 0 && (
           <div style={{ textAlign:'center', padding:'80px 24px' }}>
-            <p style={{ fontFamily:'var(--gl-font-display), Georgia, serif', fontSize:28, fontWeight:500, color:GL_LIGHT, marginBottom:10 }}>
+            <p style={{ fontFamily:'var(--font-display), Georgia, serif', fontSize:26, fontWeight:400, color:'#6B635A', marginBottom:10 }}>
               No photos yet
             </p>
-            <p style={{ fontSize:14, color:'rgba(245,223,208,.6)' }}>
+            <p style={{ fontSize:14, color:'#9E968E' }}>
               Check back soon — we&apos;re adding new images regularly.
             </p>
           </div>
@@ -376,7 +346,7 @@ export default function GalleryPage() {
               }}>›</button>
             )}
 
-            <div style={{ borderRadius: 16, overflow: 'hidden', lineHeight: 0 }}>
+            <div style={{ borderRadius: 4, overflow: 'hidden', lineHeight: 0 }}>
               <Image
                 src={selectedImage.url}
                 alt={selectedImage.alt_text || 'Gallery'}
@@ -388,16 +358,16 @@ export default function GalleryPage() {
 
             {selectedImage.alt_text && (
               <div style={{ marginTop:16, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
-                <p style={{ color:GL_LIGHT, fontSize:14, fontWeight:400, letterSpacing:'.04em', margin:0 }}>
+                <p style={{ color:'#F7F3EE', fontSize:14, fontWeight:300, letterSpacing:'.04em', margin:0 }}>
                   {selectedImage.alt_text}
                 </p>
-                <span style={{ fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:GL_ACCENT, fontWeight:600, flexShrink:0 }}>
+                <span style={{ fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:'#D4B896', fontWeight:600, flexShrink:0 }}>
                   {TABS.find(t => t.key === selectedImage.category)?.label ?? selectedImage.category}
                 </span>
               </div>
             )}
 
-            <p style={{ marginTop:10, textAlign:'center', fontSize:11, color:'rgba(245,223,208,.55)', letterSpacing:'.1em' }}>
+            <p style={{ marginTop:10, textAlign:'center', fontSize:11, color:'#6B635A', letterSpacing:'.1em' }}>
               {filteredImages.findIndex(i => i.id === selectedImage.id) + 1} / {filteredImages.length}
             </p>
           </div>
