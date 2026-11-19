@@ -104,17 +104,29 @@ Every request passes through **three gates** before reaching the database:
 
 ## 🔒 Security
 
-Security was treated as a feature, not an afterthought:
+Security was treated as a feature, not an afterthought. The table below maps Crown & Glow against the [OWASP Top 10:2025](https://owasp.org/Top10/2025/), the current edition of OWASP's list of the most critical web application security risks.
 
-- **Authentication** — JWTs stored in httpOnly cookies, with refresh tokens and MFA
-- **Role-based access control** — enforced on the backend and in Next.js `middleware.ts`
-- **Brute-force protection** — rate limiting plus account lockout after repeated failed logins
-- **Input validation** — every request body validated with Zod before touching business logic
-- **Password security** — bcrypt hashing and strength enforcement
-- **Secret management** — no secrets in the repo; all config via environment variables (`.env.example` documents them with placeholders), verified with a full-history Gitleaks scan
-- **Safe seeding** — the seed script refuses to run against production unless explicitly allowed, and requires non-default passwords when it does
-- **Signed uploads** — Cloudinary uploads are signed server-side
-- **Dependency scanning** — `npm audit` runs in CI on every push
+| OWASP 2025 | How Crown & Glow addresses it |
+|---|---|
+| **A01 Broken Access Control** | Role checks on every protected Express route (`isAdmin`, `isStaffOrAdmin`), not just in the Next.js `middleware.ts`. Ownership is enforced in the service layer: customers can only cancel or reschedule their own appointments, and staff can only update appointments assigned to them (`403` otherwise). |
+| **A02 Security Misconfiguration** | `helmet` security headers and a restricted CORS origin. `validateEnv.ts` fails fast at startup if a required secret is missing. Stack traces are only returned in development. Separate secrets per environment, and the production database is not publicly reachable. The seed script refuses to run against production unless explicitly allowed. |
+| **A03 Software Supply Chain Failures** | `npm audit --audit-level=high --omit=dev` runs in CI for both backend and frontend and fails the build on high/critical advisories. This caught and led to patching a Next.js remote-code-execution advisory. Lockfiles are committed. |
+| **A04 Cryptographic Failures** | Passwords hashed with bcrypt (configurable rounds). JWTs signed with environment-held secrets and delivered in `httpOnly`, `secure`, `sameSite=strict` cookies. HTTPS in production. Cloudinary uploads are signed server-side. |
+| **A05 Injection** | All database access goes through Prisma's parameterized queries, with no raw SQL in application code. Every request body is validated with Zod schemas before it reaches business logic. |
+| **A06 Insecure Design** | Three separate gates before data reaches the database: **validator → middleware → service**. Staff double-booking is blocked at the database level by a Postgres exclusion constraint (`btree_gist`), not only by application checks. Booking writes run in serializable transactions. Cancel/reschedule cutoffs are enforced on the server. |
+| **A07 Authentication Failures** | Email verification, MFA, password strength enforcement, and secure forgot/reset-password flows. Account lockout after repeated failed logins. Tiered rate limits on auth, signup and password-reset endpoints. Refresh tokens are rotated on use. |
+| **A08 Software or Data Integrity Failures** | `develop` → `main` pull-request workflow. CI runs type checks, lint, migrations, seeding and the full test suite against an ephemeral Postgres before merge. Incoming scheduled-job webhooks (QStash) are signature-verified. A full-history Gitleaks scan confirmed no secrets in the repo. |
+| **A09 Security Logging & Alerting Failures** | Structured JSON logging with a per-request `requestId` for correlation. An admin audit log records who changed what (appointment status, service price/details, staff records) with field-level diffs. Optional Sentry forwarding for errors. |
+| **A10 Mishandling of Exceptional Conditions** | A global error middleware maps known database errors (e.g. exclusion-constraint and unique-index violations) to safe, user-friendly responses without leaking internals. Serializable transactions retry on write conflicts so race conditions return the correct domain error instead of a crash. Audit-log failures are caught so they never break the operation being recorded. |
+
+### Known gaps / next steps
+
+Being honest about what's not done yet:
+
+- **Refresh tokens are stored as plain values** in the database; hashing them (as with passwords) would limit damage from a database leak.
+- **Failed logins and lockouts aren't logged** as security events yet, and there is no alerting on suspicious patterns.
+- **The 403 response echoes the user's role** and the required roles; a generic message would disclose less.
+- **Sentry is opt-in** and not enabled in the demo deployment.
 
 ---
 
